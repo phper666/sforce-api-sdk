@@ -9,6 +9,7 @@ import java.util.List;
 /**
  * Gson-based implementation of JsonSerializer.
  *
+ * @param <T> the type parameter for deserialization target type
  * @author Yuzhao.Li
  */
 @SuppressWarnings({"rawtypes", "unchecked"})

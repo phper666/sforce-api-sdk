@@ -57,6 +57,7 @@ public interface Func<Children, R> extends Serializable {
 
     /**
      * ignore
+     * @return children
      */
     default Children notIn(R column, Collection<?> coll) {
         return notIn(true, column, coll);
@@ -75,6 +76,9 @@ public interface Func<Children, R> extends Serializable {
 
     /**
      * ignore
+     * @param column 字段
+     * @param value  数据数组
+     * @return children
      */
     default Children notIn(R column, Object... value) {
         return notIn(true, column, value);
@@ -96,6 +100,9 @@ public interface Func<Children, R> extends Serializable {
 
     /**
      * ignore
+     * @param column  字段
+     * @param inValue soql语句
+     * @return children
      */
     default Children inSoql(R column, String inValue) {
         return inSoql(true, column, inValue);
@@ -116,6 +123,9 @@ public interface Func<Children, R> extends Serializable {
 
     /**
      * ignore
+     * @param column  字段
+     * @param inValue soql语句
+     * @return children
      */
     default Children notInSoql(R column, String inValue) {
         return notInSoql(true, column, inValue);
@@ -151,6 +161,8 @@ public interface Func<Children, R> extends Serializable {
 
     /**
      * ignore
+     * @param column 字段
+     * @return children
      */
     default Children isNotNull(R column) {
         return isNotNull(true, column);
@@ -168,7 +180,11 @@ public interface Func<Children, R> extends Serializable {
     Children isNotNull(boolean condition, R column);
 
     /**
-     * ignore
+     * 排序：ORDER BY 字段 ASC
+     * <p>例: orderByAsc("name")</p>
+     *
+     * @param column 字段
+     * @return children
      */
     Children orderByAsc(R column);
 

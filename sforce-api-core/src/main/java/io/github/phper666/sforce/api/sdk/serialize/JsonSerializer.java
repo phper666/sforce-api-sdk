@@ -6,6 +6,7 @@ import java.util.List;
 /**
  * Interface for JSON serialization and deserialization.
  *
+ * @param <T> the type parameter for deserialization target type
  * @author Yuzhao.Li
  */
 public interface JsonSerializer<T> {
