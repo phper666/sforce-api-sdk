@@ -34,7 +34,7 @@
 
 ```xml
 <dependency>
-    <groupId>com.phper666</groupId>
+    <groupId>io.github.phper666</groupId>
     <artifactId>sforce-api-core</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
@@ -43,9 +43,9 @@
 ### 基础用法
 
 ```java
-import com.phper666.sforce.api.sdk.SforceApi;
-import com.phper666.sforce.api.sdk.config.SdkConfig;
-import com.phper666.sforce.api.sdk.config.AuthFlow;
+import io.github.phper666.sforce.api.sdk.SforceApi;
+import io.github.phper666.sforce.api.sdk.config.SdkConfig;
+import io.github.phper666.sforce.api.sdk.config.AuthFlow;
 
 var config = new SdkConfig()
     .setAuthFlow(AuthFlow.CLIENT_CREDENTIAL)
@@ -218,8 +218,8 @@ MyObj byExt = sobject.getCObjectByExternalId(
 ### 批量操作
 
 ```java
-import com.phper666.sforce.api.sdk.model.CompositeBodyObject;
-import com.phper666.sforce.api.sdk.model.CompositeObject;
+import io.github.phper666.sforce.api.sdk.model.CompositeBodyObject;
+import io.github.phper666.sforce.api.sdk.model.CompositeObject;
 
 // 批量创建
 var create1 = new CompositeBodyObject();
@@ -452,9 +452,9 @@ resp.getCompositeResponse().forEach(cr -> {
 通过 `api.bulk()` 访问，实现 Bulk API 2.0 大数据导入导出。
 
 ```java
-import com.phper666.sforce.api.sdk.BulkApi;
-import com.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
-import com.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
+import io.github.phper666.sforce.api.sdk.BulkApi;
+import io.github.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
+import io.github.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
 
 var request = new BulkApiCreateJobRequest()
     .setObject("Account")
@@ -497,8 +497,8 @@ api.bulk().downloadBulkApiJobResult(
 通过 `api.file()` 访问，支持 Chatter 文件与 ContentDocument 下载。
 
 ```java
-import com.phper666.sforce.api.sdk.model.DownloadContentDocumentRequest;
-import com.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
+import io.github.phper666.sforce.api.sdk.model.DownloadContentDocumentRequest;
+import io.github.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
 
 // 上传 Chatter 文件
 String fileId = api.file().uploadChatterFile(new File("report.pdf"));
@@ -527,7 +527,7 @@ File named2 = api.file().downloadContentDocumentFile("069...", new TimeoutSettin
 ### Apex REST
 
 ```java
-import com.phper666.sforce.api.sdk.config.SdkTypes.HttpMethod;
+import io.github.phper666.sforce.api.sdk.config.SdkTypes.HttpMethod;
 
 String result = api.customCode().runApex(
     "/services/apexrest/myService", HttpMethod.POST, Map.of("key", "value"));
@@ -565,7 +565,7 @@ String quick = api.customCode().getQuickAction("Account", "Account.MyQuickAction
 `SoqlBuilder<T>` 通过方法引用构造类型安全的 SOQL，自动解析字段名与 namespace。
 
 ```java
-import com.phper666.sforce.api.sdk.builder.SoqlBuilder;
+import io.github.phper666.sforce.api.sdk.builder.SoqlBuilder;
 
 String soql = new SoqlBuilder<Account>()
     .select(Account::getId, Account::getName)
@@ -614,7 +614,7 @@ String all = new SoqlBuilder<Account>()
 
 ```xml
 <dependency>
-    <groupId>com.phper666</groupId>
+    <groupId>io.github.phper666</groupId>
     <artifactId>sforce-api-spring-boot-starter</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
@@ -638,8 +638,8 @@ sforce:
 ### 注入使用
 
 ```java
-import com.phper666.sforce.api.sdk.autoconfigure.SforceApiFactory;
-import com.phper666.sforce.api.sdk.SforceApi;
+import io.github.phper666.sforce.api.sdk.autoconfigure.SforceApiFactory;
+import io.github.phper666.sforce.api.sdk.SforceApi;
 
 @Service
 public class MyService {

@@ -34,7 +34,7 @@
 
 ```xml
 <dependency>
-    <groupId>com.phper666</groupId>
+    <groupId>io.github.phper666</groupId>
     <artifactId>sforce-api-core</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>
@@ -632,7 +632,7 @@ Add the starter:
 
 ```xml
 <dependency>
-    <groupId>com.phper666</groupId>
+    <groupId>io.github.phper666</groupId>
     <artifactId>sforce-api-spring-boot-starter</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 </dependency>

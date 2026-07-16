@@ -6,8 +6,8 @@
 
     <parent>
         <artifactId>sforce-api-sdk</artifactId>
-        <groupId>com.phper666</groupId>
-        <version>0.0.1-SNAPSHOT</version>
+        <groupId>io.github.phper666</groupId>
+        <version>0.0.1</version>
     </parent>
 
     <artifactId>sforce-api-core</artifactId>
