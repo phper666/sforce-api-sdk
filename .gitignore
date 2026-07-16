@@ -35,4 +35,6 @@ replay_pid*
 .settings
 .classpath
 .factorypath
+.flattened-pom.xml
+.opencode
 bin/
