@@ -318,7 +318,92 @@ class SobjectApi extends BaseApi {
             throw requestFailed("batchDeleteObjects", e);
         }
     }
-    // SObject Describe
+    // List Objects + Describe (single & batch)
+    // ──────────────────────────────────────────────
+
+    /**
+     * List all SObjects accessible to the current user.
+     * <p>
+     * Salesforce automatically filters out objects the user has no permission to access.
+     * Custom objects (name ends with {@code __c}) are included with {@code custom=true}.
+     */
+    @SuppressWarnings("unchecked")
+    public List<SObjectMetadata> listObjects() {
+        String url = session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/sobjects";
+        try {
+            String body = executeGetBody(url, HttpMethod.GET.name(), EMPTY_BODY, EMPTY_HEADERS, DEFAULT_TIME_OUT);
+            var result = (SObjectListResult) jsonSerializer.fromJson(body, SObjectListResult.class);
+            return result != null ? result.getSobjects() : List.of();
+        } catch (IOException e) {
+            throw requestFailed("listObjects", e);
+        }
+    }
+
+    /**
+     * List SObjects with client-side pagination.
+     *
+     * @param page     1-based page index
+     * @param pageSize items per page
+     */
+    public PageQueryResponse<SObjectMetadata> listObjects(int page, int pageSize) {
+        List<SObjectMetadata> all = listObjects();
+        int totalSize = all.size();
+        int fromIndex = (page - 1) * pageSize;
+        int toIndex = Math.min(fromIndex + pageSize, totalSize);
+        List<SObjectMetadata> pageData = fromIndex >= totalSize ? List.of() : all.subList(fromIndex, toIndex);
+
+        PageQueryResponse<SObjectMetadata> resp = new PageQueryResponse<>();
+        resp.setTotalSize(totalSize);
+        resp.setDone(toIndex >= totalSize);
+        resp.setRecords(pageData);
+        return resp;
+    }
+
+    /**
+     * Batch-describe multiple objects using Composite API.
+     * <p>
+     * Processes up to {@value #COMPOSITE_REQUEST_LIMIT} objects per Composite request.
+     * Each {@link ObjectDescribeResponse} contains only fields the current user has
+     * Field-Level Security (FLS) access to.
+     *
+     * @param objectNames object API names (standard like {@code Account}, custom like {@code MyObject__c})
+     * @return list of describes for accessible objects (inaccessible ones are silently skipped)
+     */
+    @SuppressWarnings("unchecked")
+    public List<ObjectDescribeResponse> describeObjects(List<String> objectNames) {
+        List<ObjectDescribeResponse> results = new ArrayList<>();
+        Lists.partition(objectNames, COMPOSITE_REQUEST_LIMIT).forEach(batch -> {
+            CompositeRequestBody compositeBody = new CompositeRequestBody();
+            compositeBody.setAllOrNone(false);
+            List<CompositeRequest> requests = new ArrayList<>();
+            for (String name : batch) {
+                CompositeRequest req = new CompositeRequest();
+                req.setMethod(HttpMethod.GET.name());
+                req.setUrl("/services/data/" + config.getApiVersion() + "/sobjects/" + name + "/describe");
+                req.setReferenceId(name);
+                requests.add(req);
+            }
+            compositeBody.setCompositeRequest(requests);
+
+            RequestBody rb = RequestBody.create(JSON_MEDIA, jsonSerializer.toJson(compositeBody));
+            try {
+                String response = executeGetBody(buildCompositeUri(), HttpMethod.POST.name(), rb, EMPTY_HEADERS, DEFAULT_TIME_OUT);
+                var respBody = (CompositeResponseBody) jsonSerializer.fromJson(response, CompositeResponseBody.class);
+                for (CompositeResponse cr : respBody.getCompositeResponse()) {
+                    if (cr.isSuccessful()) {
+                        String bodyStr = jsonSerializer.toJson(cr.getBody());
+                        results.add((ObjectDescribeResponse) jsonSerializer.fromJson(bodyStr, ObjectDescribeResponse.class));
+                    }
+                }
+            } catch (IOException e) {
+                throw requestFailed("describeObjects", e);
+            }
+        });
+        return results;
+    }
+
+    // ──────────────────────────────────────────────
+    // Single Object Describe
     // ──────────────────────────────────────────────
 
     public String describeObject(String objectName) {

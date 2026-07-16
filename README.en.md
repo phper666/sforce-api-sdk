@@ -69,8 +69,8 @@ PageQueryResponse<Account> all = api.query().soqlQueryAll(
 api.query().soslQuery("FIND {Acme}");
 
 // Batch
-api.sobject().batchCreate(records);
-api.sobject().batchUpsert("Account", "External_Id__c", records);
+api.sobject().batchCreateSObjects(records);
+api.sobject().batchCreateOrUpdateSObjects("Account", "External_Id__c", records);
 
 // Bulk API 2.0
 api.bulk().createBulkApiJob(request, csvFile, timeout);
@@ -82,7 +82,485 @@ api.create("MyObj__c", data);  // → myns__MyObj__c
 api.describe("Account");
 ```
 
-### Spring Boot
+## Authentication
+
+The SDK supports four OAuth flows. Set the flow with `SdkConfig.setAuthFlow(AuthFlow)`.
+
+### Password Flow
+
+```java
+var config = new SdkConfig()
+    .setAuthFlow(AuthFlow.PASSWORD)
+    .setUsername("user@example.com")
+    .setPassword("password+securityToken")
+    .setClientId("client_id")
+    .setClientSecret("client_secret")
+    .setLoginEndpoint("https://login.salesforce.com");
+
+var api = new SforceApi(config);
+```
+
+### Client Credentials Flow
+
+```java
+var config = new SdkConfig()
+    .setAuthFlow(AuthFlow.CLIENT_CREDENTIAL)
+    .setClientId("client_id")
+    .setClientSecret("client_secret")
+    .setLoginEndpoint("https://login.salesforce.com");
+
+var api = new SforceApi(config);
+```
+
+### Authorization Code Flow
+
+```java
+var config = new SdkConfig()
+    .setAuthFlow(AuthFlow.AUTHORIZATION_CODE)
+    .setClientId("client_id")
+    .setClientSecret("client_secret")
+    .setAuthorizationCode("auth_code")
+    .setRedirectUri("https://callback.example.com/oauth")
+    .setLoginEndpoint("https://login.salesforce.com");
+
+var api = new SforceApi(config);
+```
+
+### Access Token Flow
+
+Use an existing access token. The SDK skips the login call.
+
+```java
+var config = new SdkConfig()
+    .setAuthFlow(AuthFlow.ACCESS_TOKEN)
+    .setAccessToken("00Dxx...")
+    .setLoginEndpoint("https://login.salesforce.com");
+
+var api = new SforceApi(config);
+```
+
+## SforceApi Facade
+
+Convenience methods that route to the underlying sub-APIs.
+
+```java
+// Create
+CreateObjectResponse created = api.create("Account", Map.of("Name", "Acme"));
+
+// Get by ID
+Account account = api.get("Account", "001xx...", Account.class);
+
+// Update
+api.update("Account", "001xx...", Map.of("Name", "Acme Updated"));
+
+// Delete
+api.delete("Account", "001xx...");
+
+// Upsert by external ID
+api.upsert("Account", "External_Id__c", "ext-001", Map.of("Name", "Acme"));
+
+// Get by external ID
+Account account = api.getByExternalId(
+    "Account", "External_Id__c", "ext-001", Account.class);
+
+// Session metadata
+String token = api.getAccessToken();
+String endpoint = api.getApiEndpoint();
+UserInfo user = api.getUserInfo(UserInfo.class);
+
+// Describe an object
+ObjectDescribeResponse describe = api.describe("Account");
+```
+
+## SobjectApi
+
+Access via `api.sobject()`.
+
+### SObject CRUD
+
+```java
+// Create
+CreateObjectResponse resp = api.sobject().createSObject("Account", Map.of("Name", "Acme"));
+
+// Create with custom headers
+Map<String, String> headers = Map.of("Sforce-Auto-Assign", "FALSE");
+CreateObjectResponse resp2 = api.sobject().createSObject("Account", data, headers);
+
+// Get by ID
+Account account = api.sobject().getSObject("Account", "001xx...", Account.class);
+
+// Get as Map
+Map<String, Object> accountMap = api.sobject().getSObjectAsMap("Account", "001xx...");
+
+// Get by external ID
+Account account = api.sobject().getSObjectByExternalId(
+    "Account", "External_Id__c", "ext-001", Account.class);
+
+// Update
+api.sobject().updateSObject("Account", "001xx...", Map.of("Name", "Acme Updated"));
+
+// Update with custom headers
+api.sobject().updateSObject("Account", "001xx...", data, headers);
+
+// Upsert
+CreateOrUpdateObjectResponse upserted = api.sobject().createOrUpdateSObject(
+    "Account", "External_Id__c", "ext-001", data);
+
+// Upsert with custom headers
+CreateOrUpdateObjectResponse upserted2 = api.sobject().createOrUpdateSObject(
+    "Account", "External_Id__c", "ext-001", data, headers);
+
+// Delete
+api.sobject().deleteSObject("Account", "001xx...");
+```
+
+### Custom Object CRUD
+
+Custom objects are resolved using the configured namespace and the `__c` suffix.
+
+```java
+// Create — objectType "MyObj__c" resolves to "myns__MyObj__c"
+String id = api.sobject().createCObject("MyObj__c", data);
+
+// Get
+MyObj obj = api.sobject().getCObject("MyObj__c", id, MyObj.class);
+
+// Update
+api.sobject().updateCObject("MyObj__c", id, data);
+
+// Delete
+api.sobject().deleteCObject("MyObj__c", id);
+
+// Upsert
+CreateOrUpdateObjectResponse resp = api.sobject().createOrUpdateCObject(
+    "MyObj__c", "External_Id__c", "ext-001", data);
+
+// Get by external ID
+MyObj obj = api.sobject().getCObjectByExternalId(
+    "MyObj__c", "External_Id__c", "ext-001", MyObj.class);
+```
+
+### Batch Operations
+
+```java
+// Batch create
+List<CompositeBodyObject> records = List.of(
+    new CompositeBodyObject()
+        .setObjectType("Account")
+        .setBody(Map.of("Name", "Acme")),
+    new CompositeBodyObject()
+        .setObjectType("Account")
+        .setBody(Map.of("Name", "Globex"))
+);
+List<CreateObjectResponse> created = api.sobject().batchCreateSObjects(records);
+
+// Batch create with headers
+List<CreateObjectResponse> created2 = api.sobject().batchCreateSObjects(records, headers);
+
+// Batch upsert by external ID
+List<CompositeObject> upsertRecords = List.of(
+    new CompositeObject().setObjectType("Account"),
+    new CompositeObject().setObjectType("Account")
+);
+// populate records via map/POJO as needed
+List<CreateOrUpdateObjectResponse> upserted = api.sobject().batchCreateOrUpdateSObjects(
+    "Account", "External_Id__c", upsertRecords);
+
+// Batch update
+List<UpdateObjectResponse> updated = api.sobject().batchUpdateCObjects(records);
+List<UpdateObjectResponse> updated2 = api.sobject().batchUpdateCObjects(records, headers);
+
+// Batch get by IDs
+List<Account> accounts = api.sobject().batchGetSObjects(
+    "Account",
+    List.of("001xx...", "001yy..."),
+    List.of("Id", "Name"),
+    Account.class);
+
+// Batch delete
+List<DeleteObjectResponse> deleted = api.sobject().batchDeleteObjects(
+    List.of("001xx...", "001yy..."), false);
+
+// Batch upsert from map of external ID → record
+Map<String, Account> byExternalId = Map.of("ext-001", acct1, "ext-002", acct2);
+Map<String, CreateOrUpdateObjectResponse> results = api.sobject().batchCreateOrUpdateSObjects(
+    "Account", "External_Id__c", byExternalId);
+
+// Batch upsert custom objects
+Map<String, CreateOrUpdateObjectResponse> cResults = api.sobject().batchCreateOrUpdateCObjects(
+    "MyObj__c", "External_Id__c", byExternalId);
+```
+
+### Describe
+
+```java
+// Raw JSON describe
+String json = api.sobject().describeObject("Account");
+
+// Typed describe
+ObjectDescribeResponse describe = api.sobject().getSObjectDescribe("Account");
+
+// Custom object describe
+ObjectDescribeResponse cDescribe = api.sobject().getCObjectDescribe("MyObj__c");
+
+// List all objects visible to current user
+List<SObjectMetadata> objects = api.sobject().listObjects();
+
+// Paginated list
+PageQueryResponse<SObjectMetadata> page = api.sobject().listObjects(1, 50);
+
+// Batch describe multiple objects
+List<ObjectDescribeResponse> describes = api.sobject().describeObjects(
+    List.of("Account", "Contact", "Opportunity"));
+```
+
+### Platform Event
+
+```java
+String schema = api.sobject().getPlatformEventSchema("My_Event__e");
+```
+
+### Relationship Queries
+
+```java
+// Query child records via relationship
+PageQueryResponse<Contact> contacts = api.sobject().getSObjectsByRelationship(
+    "Account", "001xx...", "Contacts", Contact.class);
+
+// Update a relationship
+api.sobject().updateSObjectByRelationship(
+    "Account", "001xx...", "Contacts", Map.of("LastName", "Smith"));
+```
+
+## QueryApi
+
+Access via `api.query()`.
+
+### SOQL
+
+```java
+// Single-page query
+PageQueryResponse<Account> page = api.query().soqlQuery(
+    "SELECT Id, Name FROM Account LIMIT 200", Account.class);
+
+// Auto-paginate all records
+PageQueryResponse<Account> all = api.query().soqlQueryAll(
+    "SELECT Id, Name FROM Account", Account.class);
+
+// Count rows
+int count = api.query().soqlQueryCount("SELECT Id FROM Account");
+
+// Fetch next page from a URL returned by Salesforce
+PageQueryResponse<Account> next = api.query().soqlQueryNext(
+    "/services/data/v62.0/query/01gxx...", Account.class);
+```
+
+### SOSL
+
+```java
+// Simple SOSL
+SOSLQueryResponse response = api.query().soslQuery("FIND {Acme}");
+
+// Parameterized search via query string
+SOSLQueryResponse response2 = api.query().soslQueryWithParameter("q=Acme&defaultLimit=20");
+
+// Parameterized search via body
+var body = new ParameterizedSearchRequestBody(
+    "Acme", "20", null, null, null, null, null,
+    null, null, null, null, null, null, false, null, null);
+SOSLQueryResponse response3 = api.query().soslQueryWithParameter(body);
+```
+
+### Tooling API
+
+```java
+PageQueryResponse<ApexClass> classes = api.query().toolingApiSoqlQuery(
+    "SELECT Id, Name FROM ApexClass", ApexClass.class);
+```
+
+## CompositeApi
+
+Access via `api.composite()`.
+
+```java
+var req1 = new CompositeRequest();
+req1.setMethod("GET");
+req1.setUrl("/services/data/v62.0/sobjects/Account/001xx...");
+req1.setReferenceId("account");
+
+var req2 = new CompositeRequest();
+req2.setMethod("GET");
+req2.setUrl("/services/data/v62.0/sobjects/Contact/describe");
+req2.setReferenceId("contactDescribe");
+
+var body = new CompositeRequestBody();
+body.setAllOrNone(false);
+body.setCompositeRequest(List.of(req1, req2));
+
+CompositeResponseBody response = api.composite().compositeRequest(body);
+
+// With custom headers
+CompositeResponseBody response2 = api.composite().compositeRequest(body, headers);
+```
+
+## BulkApi
+
+Access via `api.bulk()`.
+
+```java
+// Create a job and upload CSV
+var request = new BulkApiCreateJobRequest()
+    .setObject("Account")
+    .setOperation(BulkApi.JobOperation.UPSERT)
+    .setExternalIdFieldName("External_Id__c")
+    .setLineEnding(BulkApi.LineEnding.LF)
+    .setColumnDelimiter(BulkApi.ColumnDelimiter.COMMA);
+
+File csv = new File("accounts.csv");
+BulkApiJobDetailResponse job = api.bulk().createBulkApiJob(
+    request, csv, new TimeoutSettings());
+
+// Check job status
+BulkApiJobDetailResponse status = api.bulk().getBulkApiJob(
+    job.getId(), new TimeoutSettings());
+
+// Download successful results
+api.bulk().downloadBulkApiJobResult(
+    job.getId(), BulkApi.JobResultType.SUCCESSFUL_RESULT,
+    new File("success.csv"), new TimeoutSettings());
+
+// Download failed results
+api.bulk().downloadBulkApiJobResult(
+    job.getId(), BulkApi.JobResultType.FAILED_RESULT,
+    new File("failed.csv"), new TimeoutSettings());
+
+// Download unprocessed records
+api.bulk().downloadBulkApiJobResult(
+    job.getId(), BulkApi.JobResultType.UNPROCESSED_RESULT,
+    new File("unprocessed.csv"), new TimeoutSettings());
+```
+
+### BulkApi Enums
+
+- `BulkApi.JobOperation` — `INSERT`, `DELETE`, `HARD_DELETE`, `UPDATE`, `UPSERT`
+- `BulkApi.JobResultType` — `SUCCESSFUL_RESULT`, `FAILED_RESULT`, `UNPROCESSED_RESULT`
+- `BulkApi.ColumnDelimiter` — `BACKQUOTE`, `CARET`, `COMMA`, `PIPE`, `SEMICOLON`, `TAB`
+- `BulkApi.LineEnding` — `LF`, `CRLF`
+- `BulkApi.JobState` — `OPEN`, `UPDATE_COMPLETE`, `ABORTED`, `JOB_COMPLETE`, `FAILED`
+
+## FileApi
+
+Access via `api.file()`.
+
+### Chatter File
+
+```java
+// Upload a file to Chatter
+String contentDocumentId = api.file().uploadChatterFile(new File("report.pdf"));
+
+// Upload with custom timeout
+String contentDocumentId2 = api.file().uploadChatterFile(
+    new File("report.pdf"), new TimeoutSettings());
+
+// Generate a browser download URL
+String url = api.file().generateChatterFileDownloadUrl(contentDocumentId);
+```
+
+### ContentDocument
+
+```java
+// Download to a temp file with explicit naming
+var request = new DownloadContentDocumentRequest(
+    "069xx...", "/tmp", "report-", ".pdf");
+File file = api.file().downloadContentDocument(request);
+
+// Download with custom timeout
+File file2 = api.file().downloadContentDocument(request, new TimeoutSettings());
+
+// Download and infer filename from Content-Disposition
+File file3 = api.file().downloadContentDocumentFile("069xx...");
+File file4 = api.file().downloadContentDocumentFile("069xx...", new TimeoutSettings());
+```
+
+## CustomCodeApi
+
+Access via `api.customCode()`.
+
+### Apex REST
+
+```java
+// POST to an Apex REST endpoint
+String json = api.customCode().runApex(
+    "/myService/*", SdkTypes.HttpMethod.POST, Map.of("key", "value"));
+
+// GET with no body
+String json2 = api.customCode().runApex(
+    "/myService/records", SdkTypes.HttpMethod.GET, null);
+```
+
+### Invocable Actions
+
+```java
+// Invoke a standard action
+String result = api.customCode().invokeInvocableActions(
+    "/services/data/v62.0/actions/standard/flow/Run_Flow", inputs);
+
+// Get action schema
+String schema = api.customCode().getInvocableActionSchema(
+    "/services/data/v62.0/actions/standard/flow/Run_Flow");
+
+// List standard actions
+ListInvocableActionResult actions = api.customCode().listStandardInvocableActions();
+
+// List custom actions
+ListInvocableActionResult flows = api.customCode().listCustomInvocableActions(
+    CustomCodeApi.CustomActionType.FLOW);
+ListInvocableActionResult apexActions = api.customCode().listCustomInvocableActions(
+    CustomCodeApi.CustomActionType.APEX);
+ListInvocableActionResult prompts = api.customCode().listCustomInvocableActions(
+    CustomCodeApi.CustomActionType.GENERATE_PROMPT_RESPONSE);
+
+// Quick action metadata
+String quickAction = api.customCode().getQuickAction("Account", "Send_Email");
+```
+
+## SOQL Builder
+
+Build type-safe SOQL queries with lambdas.
+
+```java
+String soql = new SoqlBuilder<Contact>()
+    .select(Contact::getId, Contact::getName)
+    .where(Contact::getFirstName).eq("test")
+    .and(Contact::getAnnualRevenue).gt(100000)
+    .orderByDesc(Contact::getCreatedDate)
+    .limit(100)
+    .build();
+// → SELECT Id, Name FROM Contact
+//   WHERE FirstName = 'test' AND AnnualRevenue > 100000
+//   ORDER BY CreatedDate DESC LIMIT 100
+
+// More operators
+String soql2 = new SoqlBuilder<Account>()
+    .select(Account::getId, Account::getName)
+    .where(Account::getIndustry).eq("Technology")
+    .and(Account::getAnnualRevenue).ge(1000000)
+    .and(Account::getName).in(List.of("Acme", "Globex"))
+    .or(nested -> nested
+        .where(Account::getBillingCity).eq("San Francisco")
+        .and(Account::getBillingCountry).eq("USA"))
+    .build();
+
+// Group by and count
+String soql3 = new SoqlBuilder<Account>()
+    .select("Industry", "COUNT(Id) cnt")
+    .groupBy(Account::getIndustry)
+    .build();
+```
+
+## Spring Boot Auto-Configuration
+
+Add the starter:
 
 ```xml
 <dependency>
@@ -92,6 +570,8 @@ api.describe("Account");
 </dependency>
 ```
 
+Configure in `application.yml`:
+
 ```yaml
 sforce:
   api:
@@ -100,9 +580,16 @@ sforce:
         consumer-key: xxx
         consumer-secret: xxx
         login-endpoint: https://login.salesforce.com
+      secondary:
+        consumer-key: xxx
+        consumer-secret: xxx
+        login-endpoint: https://test.salesforce.com
     custom-object-namespace: myns    # optional
     debug: true
+    debug-log-body: true
 ```
+
+Inject the factory and use it:
 
 ```java
 @Service
@@ -119,29 +606,10 @@ public class MyService {
 }
 ```
 
-## Sub-API Accessors
+You can also target a specific domain:
 
 ```java
-api.sobject()     // CRUD + batch + describe
-api.query()       // SOQL + SOSL + Tooling API
-api.bulk()        // Bulk API 2.0
-api.file()        // file upload/download
-api.composite()   // composite requests
-api.customCode()  // Apex REST + invocable actions
-api.getAccessToken()
-api.getUserInfo(UserInfo.class)
-```
-
-## SOQL Builder
-
-```java
-String soql = new SoqlBuilder<Contact>()
-    .select(Contact::getId, Contact::getName)
-    .where(Contact::getFirstName).eq("test")
-    .and(Contact::getAnnualRevenue).gt(100000)
-    .build();
-// → SELECT Id, Name FROM Contact
-//   WHERE FirstName = 'test' AND AnnualRevenue > 100000
+SforceApi api = factory.getForceClient("main", "https://mydomain.my.salesforce.com");
 ```
 
 ## Debug Mode
