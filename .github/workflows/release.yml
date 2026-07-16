@@ -60,7 +60,7 @@ jobs:
           git add -A
           git -c user.name="github-actions" -c user.email="actions@github.com" \
             commit -m "release: v${{ steps.version.outputs.version }}"
-          git tag v${{ steps.version.outputs.version }}
+          git tag -f v${{ steps.version.outputs.version }}
 
       - name: Build with flattened POMs
         run: |
@@ -127,7 +127,7 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config --unset-all http.https://github.com/.extraheader || true
-          git push "https://oauth2:${GH_PAT}@github.com/phper666/sforce-api-sdk.git" v${{ steps.version.outputs.version }}
+          git push -f "https://oauth2:${GH_PAT}@github.com/phper666/sforce-api-sdk.git" v${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         env:
