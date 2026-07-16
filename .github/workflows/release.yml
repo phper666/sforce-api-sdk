@@ -63,7 +63,7 @@ jobs:
 
       - name: Build with flattened POMs
         run: |
-          mvn clean install -DskipTests -q
+          mvn clean install -DskipTests
 
       - name: Create bundle and publish to Central Portal
         env:
@@ -83,7 +83,7 @@ jobs:
           # Copy artifacts
           for mod in sforce-api-core sforce-api-spring-boot-starter; do
             TGT="$WORK/$NS/$mod/$VERSION"
-            cp "$mod/target/$mod-$VERSION.pom"       "$TGT/"
+            cp "$HOME/.m2/repository/$NS/$mod/$VERSION/$mod-$VERSION.pom" "$TGT/"
             cp "$mod/target/$mod-$VERSION.jar"        "$TGT/"
             cp "$mod/target/$mod-$VERSION-sources.jar" "$TGT/"
             cp "$mod/target/$mod-$VERSION-javadoc.jar" "$TGT/"
