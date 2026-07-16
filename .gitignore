@@ -38,3 +38,4 @@ replay_pid*
 .flattened-pom.xml
 .opencode
 bin/
+publish
