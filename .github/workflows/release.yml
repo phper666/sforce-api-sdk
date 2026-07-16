@@ -66,6 +66,10 @@ jobs:
           mvn clean install -DskipTests
 
       - name: Validate required secrets
+        env:
+          CP_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          CP_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           if [ -z "$GPG_PASSPHRASE" ]; then echo "❌ GPG_PASSPHRASE secret is empty — set it in repo settings"; exit 1; fi
           if [ -z "$CP_USERNAME" ]; then echo "❌ OSSRH_USERNAME secret is empty"; exit 1; fi
