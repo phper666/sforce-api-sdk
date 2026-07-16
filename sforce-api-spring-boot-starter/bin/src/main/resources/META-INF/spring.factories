@@ -1,2 +1,0 @@
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-  io.github.phper666.sforce.api.sdk.autoconfigure.SforceApiAutoConfiguration

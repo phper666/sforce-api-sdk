@@ -35,3 +35,4 @@ replay_pid*
 .settings
 .classpath
 .factorypath
+bin/
