@@ -55,11 +55,24 @@ jobs:
           esac
           echo "next=${major}.${minor}.${patch}" >> $GITHUB_OUTPUT
 
+      - name: Set pom to release version and tag
+        run: |
+          mvn versions:set -DnewVersion=${{ steps.version.outputs.version }}
+          mvn versions:commit
+          git add -A
+          git -c user.name="github-actions" -c user.email="actions@github.com" \
+            commit -m "release: v${{ steps.version.outputs.version }}"
+          git tag v${{ steps.version.outputs.version }}
+
       - name: Maven deploy
         run: |
           mvn clean deploy -DskipTests \
             -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} \
             -Dgpg.defaultKeyRing=false
+
+      - name: Push tag
+        run: |
+          git push origin v${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -76,5 +89,5 @@ jobs:
           mvn versions:commit
           git add -A
           git -c user.name="github-actions" -c user.email="actions@github.com" \
-            commit -m "chore: bump to ${{ steps.next.outputs.next }}-SNAPSHOT"
+            commit --allow-empty -m "chore: bump to ${{ steps.next.outputs.next }}-SNAPSHOT"
           git push origin main
