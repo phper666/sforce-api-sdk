@@ -194,7 +194,7 @@ class ModelSerializationTest {
         BulkApiJobDetailResponse response = (BulkApiJobDetailResponse) serializer.fromJson(json, BulkApiJobDetailResponse.class);
         assertEquals("750xx000000000", response.getId());
         assertEquals(BulkApi.JobOperation.INSERT, response.getOperation());
-        assertEquals(BulkApi.JobState.UPDATE_COMPLETE, response.getState());
+        assertEquals(BulkApi.JobState.UPLOAD_COMPLETE, response.getState());
         assertEquals(BulkApi.LineEnding.LF, response.getLineEnding());
         assertEquals(BulkApi.ColumnDelimiter.COMMA, response.getColumnDelimiter());
         assertEquals("/services/data/v62.0/jobs/ingest/750/batches", response.getContentUrl());

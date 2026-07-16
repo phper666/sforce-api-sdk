@@ -62,7 +62,7 @@ public class BulkApi extends BaseApi {
 
     String markBulkApiJobUploadComplete(String url, TimeoutSettings timeOutConfig) throws IOException {
         Map<String, Object> body = new HashMap<>();
-        body.put("state", JobState.UPDATE_COMPLETE);
+        body.put("state", JobState.UPLOAD_COMPLETE);
         RequestBody rb = RequestBody.create(JSON_MEDIA, jsonSerializer.toJson(body));
         Map<String, String> headers = new HashMap<>();
         headers.put(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.getMimeType());
@@ -126,7 +126,7 @@ public class BulkApi extends BaseApi {
 
     public enum JobState {
         @SerializedName("Open") OPEN,
-        @SerializedName("UploadComplete") UPDATE_COMPLETE,
+        @SerializedName("UploadComplete") UPLOAD_COMPLETE,
         @SerializedName("Aborted") ABORTED,
         @SerializedName("JobComplete") JOB_COMPLETE,
         @SerializedName("Failed") FAILED

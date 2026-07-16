@@ -9,6 +9,8 @@ import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import okhttp3.*;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public abstract class BaseApi {
@@ -47,11 +49,11 @@ public abstract class BaseApi {
     }
 
     protected String soqlUri(String query) {
-        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/query?q=" + query;
+        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/query?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8);
     }
 
     protected String soslUri(String query) {
-        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/search?q=" + query;
+        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/search?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8);
     }
 
     protected String soslParameterizedSearchUri(String query) {
@@ -173,6 +175,7 @@ public abstract class BaseApi {
         Request request = buildRequest(url, method, requestBody, headers, timeOutConfig);
         Response response = okHttpClient.newCall(request).execute();
         if (response.code() == 401) {
+            response.close();
             session = authFlow.refresh();
             request = buildRequest(url, method, requestBody, headers, timeOutConfig);
             response = okHttpClient.newCall(request).execute();

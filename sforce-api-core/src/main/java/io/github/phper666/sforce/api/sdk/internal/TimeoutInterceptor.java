@@ -19,8 +19,8 @@ public class TimeoutInterceptor implements Interceptor {
         Request request = chain.request();
         TimeoutSettings timeOutConfig = request.tag(TimeoutSettings.class);
         if (Objects.nonNull(timeOutConfig) && Objects.nonNull(timeOutConfig.getTimeOut())) {
-            chain.withReadTimeout(timeOutConfig.getTimeOut(), timeOutConfig.getTimeUnit());
-            chain.withWriteTimeout(timeOutConfig.getTimeOut(), timeOutConfig.getTimeUnit());
+            chain = chain.withReadTimeout(timeOutConfig.getTimeOut(), timeOutConfig.getTimeUnit());
+            chain = chain.withWriteTimeout(timeOutConfig.getTimeOut(), timeOutConfig.getTimeUnit());
         }
         return chain.proceed(request);
     }

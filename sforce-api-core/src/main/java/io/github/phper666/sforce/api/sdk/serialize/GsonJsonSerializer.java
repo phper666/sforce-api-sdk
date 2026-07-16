@@ -18,7 +18,7 @@ public class GsonJsonSerializer<T> implements JsonSerializer<T> {
     private final static Gson GSON_INSTANCE;
 
     static {
-        GSON_INSTANCE = new GsonBuilder().enableComplexMapKeySerialization().setDateFormat("yyyy-MM-dd HH:mm:ss:SSS").create();
+        GSON_INSTANCE = new GsonBuilder().enableComplexMapKeySerialization().setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ").create();
     }
 
     private final static GsonJsonSerializer SERIALIZER;
