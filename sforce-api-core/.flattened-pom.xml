@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.phper666</groupId>
   <artifactId>sforce-api-core</artifactId>
-  <version>0.0.2-SNAPSHOT</version>
+  <version>0.0.2</version>
   <name>sforce-api-core</name>
   <description>Salesforce REST API SDK core - no framework dependencies</description>
   <url>https://github.com/phper666/sforce-api-sdk/sforce-api-core</url>

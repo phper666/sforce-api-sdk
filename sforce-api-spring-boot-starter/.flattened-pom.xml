@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.phper666</groupId>
   <artifactId>sforce-api-spring-boot-starter</artifactId>
-  <version>0.0.2-SNAPSHOT</version>
+  <version>0.0.2</version>
   <name>sforce-api-spring-boot-starter</name>
   <description>Spring Boot auto-configuration for sforce-api-core</description>
   <url>https://github.com/phper666/sforce-api-sdk/sforce-api-spring-boot-starter</url>
@@ -39,7 +39,7 @@
     <dependency>
       <groupId>io.github.phper666</groupId>
       <artifactId>sforce-api-core</artifactId>
-      <version>0.0.2-SNAPSHOT</version>
+      <version>0.0.2</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
