@@ -7,8 +7,6 @@ import java.util.function.Consumer;
  * <p>嵌套</p>
  * <p>泛型 Param 是具体需要运行函数的类(也是 builder 的子类)</p>
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public interface Nested<Param, Children> extends Serializable {
     default Children and() {

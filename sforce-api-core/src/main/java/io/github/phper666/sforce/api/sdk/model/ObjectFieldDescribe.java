@@ -5,6 +5,8 @@ import lombok.Data;
 import java.util.List;
 
 /**
+ * Metadata describing a Salesforce object field.
+ *
  * @see <a href="https://developer.salesforce.com/docs/atlas.en-us.252.0.api.meta/api/sforce_api_calls_describesobjects_describesobjectresult.htm">Field</a>
  */
 @Data

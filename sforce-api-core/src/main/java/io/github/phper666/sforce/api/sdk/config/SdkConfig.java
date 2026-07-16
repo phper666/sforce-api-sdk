@@ -5,9 +5,9 @@ import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import okhttp3.OkHttpClient;
 
 /**
+ * Configuration for Salesforce API SDK connection.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class SdkConfig {
     private static final String DEFAULT_LOGIN_ENDPOINT = "https://login.salesforce.com";

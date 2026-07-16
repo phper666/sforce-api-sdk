@@ -8,9 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * Response for a single subrequest in a Salesforce Composite API call.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Getter
 @Setter

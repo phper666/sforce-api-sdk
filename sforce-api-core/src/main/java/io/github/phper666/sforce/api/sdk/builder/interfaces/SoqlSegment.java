@@ -1,9 +1,9 @@
 package io.github.phper666.sforce.api.sdk.builder.interfaces;
 
 /**
+ * Interface for a single segment in a SOQL query.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @FunctionalInterface
 public interface SoqlSegment {

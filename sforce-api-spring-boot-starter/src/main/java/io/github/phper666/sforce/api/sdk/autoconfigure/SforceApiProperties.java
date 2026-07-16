@@ -5,9 +5,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * Configuration properties for Salesforce API connections.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @ConfigurationProperties(prefix = "sforce.api")
 public class SforceApiProperties {
@@ -19,6 +19,13 @@ public class SforceApiProperties {
     public Map<String, AppConfig> getConnectedApps() { return connectedApps; }
     public void setConnectedApps(Map<String, AppConfig> connectedApps) { this.connectedApps = connectedApps; }
 
+    /**
+     * Look up an AppConfig by name.
+     *
+     * @param appName connected app name
+     * @return matching AppConfig
+     * @throws IllegalArgumentException if not found
+     */
     public AppConfig getAppConfigByName(String appName) {
         AppConfig app = connectedApps.get(appName);
         if (app == null) {

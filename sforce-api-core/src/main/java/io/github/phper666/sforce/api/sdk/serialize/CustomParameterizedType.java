@@ -4,9 +4,9 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 
 /**
+ * ParameterizedType implementation for generic type resolution.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class CustomParameterizedType implements ParameterizedType {
 

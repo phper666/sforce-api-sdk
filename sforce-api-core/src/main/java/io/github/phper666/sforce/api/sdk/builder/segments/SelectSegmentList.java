@@ -17,9 +17,9 @@ import static io.github.phper666.sforce.api.sdk.builder.utils.SoqlUtil.getObject
 import static org.apache.commons.lang3.StringUtils.SPACE;
 
 /**
+ * Segment list for SELECT fields.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Setter
 public class SelectSegmentList extends ArrayList<SoqlSegment> implements SoqlSegment {

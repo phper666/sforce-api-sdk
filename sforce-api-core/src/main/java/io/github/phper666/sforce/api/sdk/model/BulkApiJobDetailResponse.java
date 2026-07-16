@@ -5,9 +5,9 @@ import lombok.Data;
 import lombok.experimental.Accessors;
 
 /**
+ * Response containing details of a Bulk API 2.0 job.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Data
 @Accessors(chain = true)

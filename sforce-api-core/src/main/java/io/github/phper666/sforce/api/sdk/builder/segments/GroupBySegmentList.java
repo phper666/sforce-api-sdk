@@ -10,9 +10,9 @@ import static java.util.stream.Collectors.joining;
 import static org.apache.commons.lang3.StringUtils.SPACE;
 
 /**
+ * Segment list for GROUP BY clauses.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class GroupBySegmentList extends ArrayList<SoqlSegment> implements SoqlSegment {
 

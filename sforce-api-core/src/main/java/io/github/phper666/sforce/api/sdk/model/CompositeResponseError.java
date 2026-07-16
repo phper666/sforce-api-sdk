@@ -4,9 +4,9 @@ import lombok.Data;
 import lombok.experimental.Accessors;
 
 /**
+ * Error detail returned by a Salesforce Composite API subrequest.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Data
 @Accessors(chain = true)

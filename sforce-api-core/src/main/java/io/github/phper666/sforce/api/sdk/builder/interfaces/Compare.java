@@ -9,8 +9,6 @@ import java.util.Optional;
  * 查询条件封装
  * <p>比较值</p>
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public interface Compare<Children, R> extends Serializable {
 

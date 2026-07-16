@@ -8,8 +8,6 @@ import java.util.Optional;
 /**
  * 查询条件封装
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @SuppressWarnings("unchecked")
 public interface Func<Children, R> extends Serializable {

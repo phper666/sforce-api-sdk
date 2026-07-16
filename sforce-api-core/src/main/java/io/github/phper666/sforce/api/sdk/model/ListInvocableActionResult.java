@@ -6,9 +6,9 @@ import lombok.experimental.Accessors;
 import java.util.List;
 
 /**
+ * Result wrapper for a list of invocable Salesforce actions.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Data
 @Accessors(chain=true)

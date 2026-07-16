@@ -23,9 +23,9 @@ import java.util.stream.Collectors;
 import static io.github.phper666.sforce.api.sdk.builder.utils.SoqlUtil.appendNamespace;
 
 /**
+ * Gson TypeAdapterFactory for custom namespace serialization.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class CustomObjectTypeFactory implements TypeAdapterFactory {
 

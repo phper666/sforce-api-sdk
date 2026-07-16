@@ -4,9 +4,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
+ * Base response body for Salesforce API responses.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Getter
 @Setter

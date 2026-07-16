@@ -10,9 +10,8 @@ import java.util.Map;
  *       "Name" : "example.com",
  *       "BillingCity" : "San Francisco"
  *    }
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class CompositeObject {
     private final static String TYPE = "type";

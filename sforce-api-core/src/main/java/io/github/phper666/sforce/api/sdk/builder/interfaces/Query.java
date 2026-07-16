@@ -6,8 +6,6 @@ import java.util.function.Predicate;
 /**
  * 查询字段封装
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public interface Query<Children, T, R> extends Serializable {
 

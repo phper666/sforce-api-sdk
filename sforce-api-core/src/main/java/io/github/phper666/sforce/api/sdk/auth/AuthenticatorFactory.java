@@ -4,9 +4,9 @@ import io.github.phper666.sforce.api.sdk.config.SdkConfig;
 import io.github.phper666.sforce.api.sdk.exception.ConfigException;
 
 /**
+ * Factory for creating Salesforce authenticators based on SDK configuration.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class AuthenticatorFactory {
     public static BaseAuthenticator create(SdkConfig config) {

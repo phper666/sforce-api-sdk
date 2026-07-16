@@ -4,9 +4,9 @@ import io.github.phper666.sforce.api.sdk.config.SdkConfig;
 import io.github.phper666.sforce.api.sdk.config.Session;
 
 /**
+ * Authenticator for OAuth 2.0 access token flow.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class AccessTokenAuthenticator extends BaseAuthenticator {
     public AccessTokenAuthenticator(SdkConfig apiConfig) {

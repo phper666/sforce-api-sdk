@@ -8,9 +8,9 @@ import okio.Buffer;
 import java.io.IOException;
 
 /**
+ * OkHttp interceptor for debug logging of API requests.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Slf4j
 public class DebugInterceptor implements Interceptor {

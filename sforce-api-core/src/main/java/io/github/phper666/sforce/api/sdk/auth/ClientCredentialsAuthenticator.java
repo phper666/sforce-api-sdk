@@ -6,9 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.FormBody;
 
 /**
+ * Authenticator for OAuth 2.0 client credentials flow.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Slf4j
 public class ClientCredentialsAuthenticator extends BaseAuthenticator {

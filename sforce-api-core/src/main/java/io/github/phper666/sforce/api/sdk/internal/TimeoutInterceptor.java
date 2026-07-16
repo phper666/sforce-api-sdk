@@ -9,9 +9,9 @@ import java.io.IOException;
 import java.util.Objects;
 
 /**
+ * OkHttp interceptor for per-request timeout handling.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class TimeoutInterceptor implements Interceptor {
     @Override

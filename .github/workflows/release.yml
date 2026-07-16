@@ -65,6 +65,13 @@ jobs:
         run: |
           mvn clean install -DskipTests
 
+      - name: Validate required secrets
+        run: |
+          if [ -z "$GPG_PASSPHRASE" ]; then echo "❌ GPG_PASSPHRASE secret is empty — set it in repo settings"; exit 1; fi
+          if [ -z "$CP_USERNAME" ]; then echo "❌ OSSRH_USERNAME secret is empty"; exit 1; fi
+          if [ -z "$CP_PASSWORD" ]; then echo "❌ OSSRH_PASSWORD secret is empty"; exit 1; fi
+          echo "✅ All required secrets present"
+
       - name: Create bundle and publish to Central Portal
         env:
           CP_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -117,6 +124,12 @@ jobs:
             cat /tmp/response.json
             exit 1
           fi
+
+      - name: Configure git with PAT for push
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
 
       - name: Push tag
         run: |

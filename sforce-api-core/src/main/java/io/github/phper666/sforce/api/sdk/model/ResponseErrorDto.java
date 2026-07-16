@@ -5,9 +5,9 @@ import lombok.Data;
 import java.util.List;
 
 /**
+ * Error detail returned by a Salesforce API operation.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Data
 public class ResponseErrorDto {

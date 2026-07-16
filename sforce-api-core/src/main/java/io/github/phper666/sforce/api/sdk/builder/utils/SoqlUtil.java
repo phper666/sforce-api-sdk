@@ -15,9 +15,9 @@ import java.util.stream.Collectors;
 import static io.github.phper666.sforce.api.sdk.builder.StringPool.*;
 
 /**
+ * Utility methods for SOQL field and value formatting.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public final class SoqlUtil {
     public static final String VALUE_FORMAT = "'%s'";

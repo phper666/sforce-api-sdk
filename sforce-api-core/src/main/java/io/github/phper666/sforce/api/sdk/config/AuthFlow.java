@@ -1,9 +1,9 @@
 package io.github.phper666.sforce.api.sdk.config;
 
 /**
+ * Enum for Salesforce OAuth authorization flows.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public enum AuthFlow {
     PASSWORD, //attention! PASSWORD auth flow only be used for test

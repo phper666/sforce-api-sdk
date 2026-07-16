@@ -4,9 +4,9 @@ import java.lang.reflect.Type;
 import java.util.List;
 
 /**
+ * Interface for JSON serialization and deserialization.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public interface JsonSerializer<T> {
 

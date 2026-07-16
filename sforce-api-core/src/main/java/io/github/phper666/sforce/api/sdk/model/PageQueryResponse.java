@@ -5,9 +5,9 @@ import lombok.Data;
 import java.util.List;
 
 /**
+ * Response wrapper for paginated SOQL queries.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Data
 public class PageQueryResponse<T> {

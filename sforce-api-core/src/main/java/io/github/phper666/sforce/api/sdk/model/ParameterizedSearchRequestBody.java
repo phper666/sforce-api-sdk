@@ -1,9 +1,9 @@
 package io.github.phper666.sforce.api.sdk.model;
 
 /**
+ * Request body for a Salesforce parameterized SOSL search.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public record ParameterizedSearchRequestBody(
     String q,

@@ -7,10 +7,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * @see <a href="https://developer.salesforce.com/docs/atlas.en-us.252.0.api.meta/api/sforce_api_calls_describesobjects_describesobjectresult.htm">DescribeSObjectResult</a>
+ * Response describing a Salesforce object metadata.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
+ * @see <a href="https://developer.salesforce.com/docs/atlas.en-us.252.0.api.meta/api/sforce_api_calls_describesobjects_describesobjectresult.htm">DescribeSObjectResult</a>
  */
 @Data
 public class ObjectDescribeResponse {

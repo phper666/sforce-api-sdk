@@ -1,9 +1,9 @@
 package io.github.phper666.sforce.api.sdk.builder;
 
 /**
+ * SOQL builder for string-based column references.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public class StringSoqlBuilder<T> extends AbstractSoqlBuilder<T, String, StringSoqlBuilder<T>> {
     public StringSoqlBuilder() {

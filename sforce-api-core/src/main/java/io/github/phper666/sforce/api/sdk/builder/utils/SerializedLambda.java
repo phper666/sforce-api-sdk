@@ -11,8 +11,6 @@ import java.util.Objects;
  * <p>负责将一个支持序列的 Function 序列化为 SerializedLambda</p>
  *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @SuppressWarnings("unused")
 public class SerializedLambda implements Serializable {

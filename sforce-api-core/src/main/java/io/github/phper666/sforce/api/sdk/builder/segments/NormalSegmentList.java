@@ -14,9 +14,9 @@ import static io.github.phper666.sforce.api.sdk.builder.StringPool.EMPTY;
 import static org.apache.commons.lang3.StringUtils.SPACE;
 
 /**
+ * Segment list for WHERE conditions.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 @Setter
 @Accessors(chain = true)

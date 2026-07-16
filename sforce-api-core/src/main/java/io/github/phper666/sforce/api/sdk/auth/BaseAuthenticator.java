@@ -12,9 +12,9 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
+ * Base class for Salesforce OAuth authenticators.
+ *
  * @author Yuzhao.Li
- * @email 562405704@qq.com
- * @date 2026-07-15
  */
 public abstract class BaseAuthenticator {
     protected final static OkHttpClient HTTP_CLIENT = new OkHttpClient();
