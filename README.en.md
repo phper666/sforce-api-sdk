@@ -240,6 +240,8 @@ MyObj obj = api.sobject().getCObjectByExternalId(
     "MyObj__c", "External_Id__c", "ext-001", MyObj.class);
 ```
 
+> **Auto-detect namespace**: Passing an already-qualified name like `otherns__MyObj__c` skips the global namespace — no double prefix. See "[Namespace](#namespace)".
+
 ### Batch Operations
 
 ```java
@@ -330,6 +332,72 @@ PageQueryResponse<Contact> contacts = api.sobject().getSObjectsByRelationship(
 // Update a relationship
 api.sobject().updateSObjectByRelationship(
     "Account", "001xx...", "Contacts", Map.of("LastName", "Smith"));
+```
+
+## Namespace
+
+Namespaces apply only to **custom objects** (`__c`) and **platform events** (`__e`). Standard objects (`Account`, `Contact`, etc.) never have namespaces.
+
+### Object Name
+
+Configure the global namespace via `SdkConfig.setCustomObjectNamespace()`. The SDK auto-detects whether a name is already qualified:
+
+| Name | Global namespace | Actual request |
+|:---|:---:|:---|
+| `MyObj__c` | `myns` | `myns__MyObj__c` — prepend global prefix |
+| `otherns__MyObj__c` | `myns` | `otherns__MyObj__c` — **already qualified, skip** |
+| `Account` | `myns` | `Account` — standard object, pass through |
+
+### Field Name
+
+When creating/updating records, **custom field names may also need namespace prefixes**:
+
+| Field | Origin | Namespace needed? |
+|:---|:---|:---:|
+| `Name`, `Id`, `OwnerId` | System standard fields | ❌ No |
+| `LocalField__c` | Created locally in this org | ❌ No |
+| `myns__PackageField__c` | Defined by a managed package | ✅ Yes |
+
+Use `@AppendCustomNamespace` + `@SerializedName` on your DTO. The namespace prefix is read from the **global `SdkConfig.setCustomObjectNamespace()`** — same config as the object name:
+
+```java
+@AppendCustomNamespace                // ← enable field-level namespace prefixing
+public class OrderDTO {
+    // Standard field — handled manually
+    private String Name;
+
+    // Package field — global namespace prepended automatically
+    @SerializedName("PackageField__c") // → serialized as myns__PackageField__c
+    private String packageField;
+
+    // Field from another package — already qualified, skipped
+    @SerializedName("otherns__Field__c") // → otherns__Field__c, no double-prefix
+    private String otherNsField;
+
+    // Local custom field — no @SerializedName, excluded from auto-serialization
+    private String localPickup__c;
+}
+```
+
+> `@AppendCustomNamespace` only affects fields annotated with `@SerializedName` that end in `__c` / `__e`. Fields without `@SerializedName` are **not included** in auto-serialization.
+
+Mixed usage (global namespace = `myns`):
+
+```java
+var data = new OrderDTO();
+data.setName("Test Order");
+data.setPackageField("pkg-value");
+data.setOtherNsField("cross-ns value");
+// localPickup__c has no @SerializedName, not serialized — skip
+
+// Pass Order__c → resolved to myns__Order__c automatically
+api.create("Order__c", data);
+// Sends: {"Name":"Test Order","myns__PackageField__c":"pkg-value","otherns__Field__c":"cross-ns value"}
+// Resolution:
+//   Order__c          → resolveType → myns__Order__c               (auto-prepend)
+//   PackageField__c   → @SerializedName + appendNamespace → myns__PackageField__c (auto-prepend)
+//   otherns__Field__c → @SerializedName + contains("__")  → otherns__Field__c     (already ns, skip)
+//   Name              → no @SerializedName → excluded from auto-serialization
 ```
 
 ## QueryApi

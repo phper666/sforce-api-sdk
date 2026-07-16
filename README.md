@@ -213,6 +213,8 @@ MyObj byExt = sobject.getCObjectByExternalId(
     "MyObj__c", "Ext__c", "ext-001", MyObj.class);
 ```
 
+> **命名空间自动检测**：如果传入的对象名已包含命名空间前缀（如 `otherns__MyObj__c`），SDK 会自动识别并跳过全局配置，不会重复追加前缀。详见[命名空间](#命名空间)。
+
 ### 批量操作
 
 ```java
@@ -307,6 +309,72 @@ PageQueryResponse<Contact> contacts = sobject.getSObjectsByRelationship(
 // 通过关系字段更新
 sobject.updateSObjectByRelationship(
     "Account", accountId, "Owner", Map.of("OwnerId", newOwnerId));
+```
+
+## 命名空间
+
+命名空间（Namespace）仅适用于**自定义对象**（`__c`）和**平台事件**（`__e`）。标准对象（`Account`、`Contact` 等）没有命名空间。
+
+### 对象名
+
+全局命名空间通过 `SdkConfig.setCustomObjectNamespace()` 配置。SDK 会自动检测传入的名称是否已包含命名空间：
+
+| 传入名称 | 全局命名空间 | 实际请求 |
+|:---|:---:|:---|
+| `MyObj__c` | `myns` | `myns__MyObj__c` — 追加全局前缀 |
+| `otherns__MyObj__c` | `myns` | `otherns__MyObj__c` — **已有前缀，跳过** |
+| `Account` | `myns` | `Account` — 标准对象，透传 |
+
+### 字段名
+
+插入/更新数据时，**自定义字段名也需要 namespace 前缀**。规则：
+
+| 字段 | 来源 | 是否需要 namespace |
+|:---|:---|:---:|
+| `Name`, `Id`, `OwnerId` | 系统标准字段 | ❌ 不需要 |
+| `LocalField__c` | 本地 org 自己创建 | ❌ 不需要 |
+| `myns__PackageField__c` | managed package 定义 | ✅ 需要 |
+
+DTO 类通过 `@AppendCustomNamespace` + `@SerializedName` 控制。namespace 前缀**从全局 `SdkConfig.setCustomObjectNamespace()` 读取**，和对象名走同一个配置：
+
+```java
+@AppendCustomNamespace                // ← 启用字段 namespace 自动拼接
+public class OrderDTO {
+    // 标准字段 — 不处理，由调用方自行赋值
+    private String Name;
+
+    // Package 字段 — 自动拼接全局 namespace
+    @SerializedName("PackageField__c") // → 序列化为 myns__PackageField__c
+    private String packageField;
+
+    // 其他 package 的字段 — 已含前缀，自动跳过
+    @SerializedName("otherns__Field__c") // → otherns__Field__c，不重复追加
+    private String otherNsField;
+
+    // 本地自定义字段 — 不加 @SerializedName 则不参与自动序列化
+    private String localPickup__c;
+}
+```
+
+> `@AppendCustomNamespace` 只影响带 `@SerializedName` 且以 `__c`/`__e` 结尾的字段。不加 `@SerializedName` 的字段**不参与自动序列化**，需自己处理。
+
+混合使用示例（全局 namespace = `myns`）：
+
+```java
+var data = new OrderDTO();
+data.setName("测试单");
+data.setPackageField("pkg-value");
+data.setOtherNsField("跨命名空间值");
+// localPickup__c 不加 @SerializedName，不会序列化，不用赋值
+
+// 传 Order__c → 自动解析为 myns__Order__c
+api.create("Order__c", data);
+// 实际发送: {"Name":"测试单","myns__PackageField__c":"pkg-value","otherns__Field__c":"跨命名空间值"}
+// 解析过程:
+//   Order__c          → resolveType → myns__Order__c         (自动拼接)
+//   PackageField__c   → @SerializedName + appendNamespace → myns__PackageField__c (自动拼接)
+//   otherns__Field__c → @SerializedName + contains("__")  → otherns__Field__c     (已有前缀跳过)
+//   Name              → 无 @SerializedName → 不参与自动序列化
 ```
 
 ## QueryApi

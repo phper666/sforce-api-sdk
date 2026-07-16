@@ -90,30 +90,76 @@ public abstract class BaseApi {
         return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/connect/files/" + fileId + "/content";
     }
 
-    protected String getCustomObjectType(String objectType) {
-        return config.getCustomObjectNamespacePrefix() + objectType + config.getCustomObjectSuffix();
+    /**
+     * Returns true when the name already carries a namespace prefix.
+     * <p>
+     * Detected by checking for {@code __} before the trailing suffix.
+     * This allows callers to pass either short names ({@code MyObj__c})
+     * or fully-qualified names ({@code myns__MyObj__c}) — the latter
+     * skips the global namespace prefix to avoid double-prefixing.
+     */
+    private boolean hasNamespacePrefix(String name, String suffix) {
+        String base = suffix != null && name.endsWith(suffix)
+                ? name.substring(0, name.length() - suffix.length())
+                : name;
+        return base.contains("__");
     }
 
+    /**
+     * Builds the full API name for a custom object.
+     * <p>
+     * Accepts the name with or without the {@code __c} suffix, and with or
+     * without a namespace prefix:
+     * <pre>
+     *   getCustomObjectType("MyObj")         → "myns__MyObj__c"  (global ns)
+     *   getCustomObjectType("otherns__MyObj")→ "otherns__MyObj__c" (auto-detect)
+     *   getCustomObjectType("otherns__MyObj__c")→ "otherns__MyObj__c"
+     * </pre>
+     */
+    protected String getCustomObjectType(String objectType) {
+        String suffix = config.getCustomObjectSuffix();
+        String base = objectType.endsWith(suffix)
+                ? objectType.substring(0, objectType.length() - suffix.length())
+                : objectType;
+        if (hasNamespacePrefix(base, null)) {
+            return base + suffix;
+        }
+        return config.getCustomObjectNamespacePrefix() + base + suffix;
+    }
+
+    /**
+     * Builds the full API name for a platform event.
+     * Same auto-detection as {@link #getCustomObjectType}.
+     */
     protected String getPlatformEventType(String eventType) {
-        return config.getCustomObjectNamespacePrefix() + eventType + config.getPlatformEventSuffix();
+        String suffix = config.getPlatformEventSuffix();
+        String base = eventType.endsWith(suffix)
+                ? eventType.substring(0, eventType.length() - suffix.length())
+                : eventType;
+        if (hasNamespacePrefix(base, null)) {
+            return base + suffix;
+        }
+        return config.getCustomObjectNamespacePrefix() + base + suffix;
     }
 
     /**
      * Resolves object type name for auto-namespace handling.
-     * If autoResolveCustomObjects is enabled:
-     * - objectType ending with __c → prepend namespace prefix
-     * - objectType ending with __e → prepend namespace prefix
-     * - otherwise → return as-is
-     * If disabled → return as-is
+     * <p>
+     * If {@code autoResolveCustomObjects} is enabled and the name ends in
+     * {@code __c} or {@code __e} <em>without</em> an existing namespace
+     * prefix, the global namespace is prepended. Names that already carry a
+     * prefix (e.g. {@code otherns__MyObj__c}) are returned unchanged.
      */
     protected String resolveType(String objectType) {
         if (!config.isAutoResolveCustomObjects()) {
             return objectType;
         }
-        if (objectType.endsWith(config.getCustomObjectSuffix())) {
+        if (objectType.endsWith(config.getCustomObjectSuffix())
+                && !hasNamespacePrefix(objectType, config.getCustomObjectSuffix())) {
             return config.getCustomObjectNamespacePrefix() + objectType;
         }
-        if (objectType.endsWith(config.getPlatformEventSuffix())) {
+        if (objectType.endsWith(config.getPlatformEventSuffix())
+                && !hasNamespacePrefix(objectType, config.getPlatformEventSuffix())) {
             return config.getCustomObjectNamespacePrefix() + objectType;
         }
         return objectType;

@@ -31,12 +31,20 @@ public final class SoqlUtil {
     }
 
     public static String appendNamespace(String field) {
-        if (customObjectNamespace != null && !customObjectNamespace.isEmpty()
-                && !field.startsWith(customObjectNamespace + "__")
-                && field.endsWith("__c")) {
-            return customObjectNamespace + "__" + field;
+        if (customObjectNamespace == null || customObjectNamespace.isEmpty()) {
+            return field;
         }
-        return field;
+        // Only custom objects/fields (__c) and platform events (__e) can have namespaces
+        if (!field.endsWith("__c") && !field.endsWith("__e")) {
+            return field;
+        }
+        // Detect if already has a namespace prefix: strip suffix, check for __
+        String suffix = field.endsWith("__c") ? "__c" : "__e";
+        String base = field.substring(0, field.length() - suffix.length());
+        if (base.contains("__")) {
+            return field; // already qualified, skip
+        }
+        return customObjectNamespace + "__" + field;
     }
 
     public static List<String> getFields(Class<?> clazz) {

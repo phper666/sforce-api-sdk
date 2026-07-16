@@ -381,6 +381,10 @@ class SforceApiTest {
         assertEquals("myns__MyObj__c", resolveType.invoke(api.sobject(), "MyObj__c"));
         assertEquals("myns__MyEvent__e", resolveType.invoke(api.sobject(), "MyEvent__e"));
 
+        // Already-qualified names — no double-prefix
+        assertEquals("otherns__MyObj__c", resolveType.invoke(api.sobject(), "otherns__MyObj__c"));
+        assertEquals("otherns__MyEvent__e", resolveType.invoke(api.sobject(), "otherns__MyEvent__e"));
+
         SdkConfig noNsConfig = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
@@ -388,6 +392,26 @@ class SforceApiTest {
                 .setCustomObjectNamespace("");
         SforceApi noNsApi = new SforceApi(noNsConfig);
         assertEquals("MyObj__c", resolveType.invoke(noNsApi.sobject(), "MyObj__c"));
+    }
+
+    @Test
+    void getCustomObjectTypeHandlesNamespacedAndPlainNames() throws Exception {
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.ACCESS_TOKEN)
+                .setAccessToken(ACCESS_TOKEN)
+                .setDomain(DOMAIN)
+                .setCustomObjectNamespace("myns");
+        SforceApi api = new SforceApi(config);
+
+        Method method = BaseApi.class.getDeclaredMethod("getCustomObjectType", String.class);
+        method.setAccessible(true);
+
+        // Plain name — prepend global ns
+        assertEquals("myns__MyObj__c", method.invoke(api.sobject(), "MyObj"));
+        // Already namespaced — keep as-is
+        assertEquals("otherns__MyObj__c", method.invoke(api.sobject(), "otherns__MyObj"));
+        // With __c suffix, already namespaced — strip and re-append
+        assertEquals("otherns__MyObj__c", method.invoke(api.sobject(), "otherns__MyObj__c"));
     }
 
     @Test
