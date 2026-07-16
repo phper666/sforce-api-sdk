@@ -6,7 +6,7 @@
 
     <groupId>io.github.phper666</groupId>
     <artifactId>sforce-api-sdk</artifactId>
-    <version>0.0.3-SNAPSHOT</version>
+    <version>0.0.3</version>
     <packaging>pom</packaging>
     <name>sforce-api-sdk</name>
     <description>Salesforce REST API SDK for Java</description>
