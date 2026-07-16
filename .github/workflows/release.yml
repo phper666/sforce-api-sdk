@@ -133,7 +133,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          git push https://${GH_PAT}@github.com/phper666/sforce-api-sdk.git v${{ steps.version.outputs.version }}
+          git push https://oauth2:${GH_PAT}@github.com/phper666/sforce-api-sdk.git v${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -153,4 +153,4 @@ jobs:
           git add -A
           git -c user.name="github-actions" -c user.email="actions@github.com" \
             commit --allow-empty -m "chore: bump to ${{ steps.next.outputs.next }}-SNAPSHOT"
-          git push https://${GH_PAT}@github.com/phper666/sforce-api-sdk.git main
+          git push https://oauth2:${GH_PAT}@github.com/phper666/sforce-api-sdk.git main
