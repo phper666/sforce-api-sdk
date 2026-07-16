@@ -26,9 +26,6 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '21'
-          server-id: ossrh
-          server-username: OSSRH_USERNAME
-          server-password: OSSRH_PASSWORD
 
       - name: Import GPG key
         run: |
@@ -64,11 +61,62 @@ jobs:
             commit -m "release: v${{ steps.version.outputs.version }}"
           git tag v${{ steps.version.outputs.version }}
 
-      - name: Maven deploy
+      - name: Build with flattened POMs
         run: |
-          mvn clean deploy -DskipTests \
-            -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} \
-            -Dgpg.defaultKeyRing=false
+          mvn clean install -DskipTests -q
+
+      - name: Create bundle and publish to Central Portal
+        env:
+          CP_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          CP_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -e
+          VERSION=${{ steps.version.outputs.version }}
+          NS="io/github/phper666"
+          WORK="/tmp/central-bundle"
+          BUNDLE="/tmp/central-bundle.zip"
+          rm -rf "$WORK" "$BUNDLE"
+          mkdir -p "$WORK/$NS/sforce-api-core/$VERSION"
+          mkdir -p "$WORK/$NS/sforce-api-spring-boot-starter/$VERSION"
+
+          # Copy artifacts
+          for mod in sforce-api-core sforce-api-spring-boot-starter; do
+            TGT="$WORK/$NS/$mod/$VERSION"
+            cp "$mod/target/$mod-$VERSION.pom"       "$TGT/"
+            cp "$mod/target/$mod-$VERSION.jar"        "$TGT/"
+            cp "$mod/target/$mod-$VERSION-sources.jar" "$TGT/"
+            cp "$mod/target/$mod-$VERSION-javadoc.jar" "$TGT/"
+          done
+
+          # GPG sign + checksums
+          find "$WORK" -type f \( -name "*.jar" -o -name "*.pom" \) | while read f; do
+            gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" -ab "$f"
+            md5sum "$f" | cut -d' ' -f1 > "$f.md5"
+            sha1sum "$f" | cut -d' ' -f1 > "$f.sha1"
+          done
+
+          # Create ZIP
+          cd "$WORK"
+          zip -q -r "$BUNDLE" .
+          cd -
+
+          # Upload
+          BEARER=$(echo -n "$CP_USERNAME:$CP_PASSWORD" | base64 -w0)
+          HTTP_CODE=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            --connect-timeout 30 --max-time 180 \
+            -H "Authorization: Bearer $BEARER" \
+            -F "bundle=@$BUNDLE" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC")
+
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
+            echo "✅ Upload successful"
+            cat /tmp/response.json
+          else
+            echo "❌ Upload failed (HTTP $HTTP_CODE)"
+            cat /tmp/response.json
+            exit 1
+          fi
 
       - name: Push tag
         run: |
