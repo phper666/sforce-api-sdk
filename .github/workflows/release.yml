@@ -129,15 +129,11 @@ jobs:
             exit 1
           fi
 
-      - name: Configure git with PAT for push
+      - name: Push tag
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
-
-      - name: Push tag
-        run: |
-          git push origin v${{ steps.version.outputs.version }}
+          git push https://${GH_PAT}@github.com/phper666/sforce-api-sdk.git v${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -147,6 +143,8 @@ jobs:
           generate_release_notes: true
 
       - name: Bump main branch to next SNAPSHOT
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git fetch origin main
           git checkout main
@@ -155,4 +153,4 @@ jobs:
           git add -A
           git -c user.name="github-actions" -c user.email="actions@github.com" \
             commit --allow-empty -m "chore: bump to ${{ steps.next.outputs.next }}-SNAPSHOT"
-          git push origin main
+          git push https://${GH_PAT}@github.com/phper666/sforce-api-sdk.git main
