@@ -7,7 +7,7 @@
     <parent>
         <artifactId>sforce-api-sdk</artifactId>
         <groupId>io.github.phper666</groupId>
-        <version>0.0.2-SNAPSHOT</version>
+        <version>0.0.2</version>
     </parent>
 
     <artifactId>sforce-api-spring-boot-starter</artifactId>
