@@ -26,6 +26,7 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '21'
+          cache: 'maven'
 
       - name: Import GPG key
         run: |
@@ -65,17 +66,6 @@ jobs:
         run: |
           mvn clean install -DskipTests
 
-      - name: Validate required secrets
-        env:
-          CP_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          CP_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: |
-          if [ -z "$GPG_PASSPHRASE" ]; then echo "❌ GPG_PASSPHRASE secret is empty — set it in repo settings"; exit 1; fi
-          if [ -z "$CP_USERNAME" ]; then echo "❌ OSSRH_USERNAME secret is empty"; exit 1; fi
-          if [ -z "$CP_PASSWORD" ]; then echo "❌ OSSRH_PASSWORD secret is empty"; exit 1; fi
-          echo "✅ All required secrets present"
-
       - name: Create bundle and publish to Central Portal
         env:
           CP_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -83,6 +73,9 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -e
+          [ -n "$GPG_PASSPHRASE" ] || { echo "❌ GPG_PASSPHRASE secret is empty"; exit 1; }
+          [ -n "$CP_USERNAME" ]    || { echo "❌ OSSRH_USERNAME secret is empty"; exit 1; }
+          [ -n "$CP_PASSWORD" ]    || { echo "❌ OSSRH_PASSWORD secret is empty"; exit 1; }
           VERSION=${{ steps.version.outputs.version }}
           NS="io/github/phper666"
           WORK="/tmp/central-bundle"
