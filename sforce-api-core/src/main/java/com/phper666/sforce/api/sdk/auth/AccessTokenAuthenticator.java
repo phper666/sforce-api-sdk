@@ -15,7 +15,7 @@ public class AccessTokenAuthenticator extends BaseAuthenticator {
 
     @Override
     public Session login() {
-        return new Session(config.getAccessToken(), config.getDomain());
+        return new Session(config.getAccessToken(), config.getLoginEndpoint());
     }
 
     @Override

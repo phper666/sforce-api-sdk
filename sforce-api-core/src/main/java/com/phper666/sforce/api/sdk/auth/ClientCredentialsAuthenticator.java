@@ -23,8 +23,8 @@ public class ClientCredentialsAuthenticator extends BaseAuthenticator {
                 .addEncoded("client_id", config.getClientId())
                 .addEncoded("client_secret", config.getClientSecret())
                 .build();
-        requestAccessToken(formBody, config.getDomain());
-        log.debug("Client credential login successful for domain: {}", config.getDomain());
+        requestAccessToken(formBody, config.getLoginEndpoint());
+        log.debug("Client credential login successful for domain: {}", config.getLoginEndpoint());
         return session;
     }
 

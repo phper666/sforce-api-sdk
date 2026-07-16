@@ -50,7 +50,7 @@ class AuthFlowFactoryTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken("token")
-                .setDomain("https://domain.my.salesforce.com");
+                .setLoginEndpoint("https://domain.my.salesforce.com");
         BaseAuthenticator flow = AuthenticatorFactory.create(config);
         assertInstanceOf(AccessTokenAuthenticator.class, flow);
     }

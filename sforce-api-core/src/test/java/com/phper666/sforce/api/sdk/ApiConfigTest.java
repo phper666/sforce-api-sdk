@@ -56,7 +56,6 @@ class ApiConfigTest {
         assertSame(config, config.setRedirectUri("https://app.com/callback"));
         assertSame(config, config.setJsonSerializer(GsonJsonSerializer.INSTANCE()));
         assertSame(config, config.setCustomObjectNamespace("ns"));
-        assertSame(config, config.setDomain("https://domain.my.salesforce.com"));
         assertSame(config, config.setAccessToken("token"));
         assertSame(config, config.setDebug(true));
         assertSame(config, config.setDebugLogBody(true));
@@ -98,7 +97,6 @@ class ApiConfigTest {
                 .setRedirectUri("https://app.com/callback")
                 .setJsonSerializer(serializer)
                 .setCustomObjectNamespace("ns")
-                .setDomain("https://domain.my.salesforce.com")
                 .setAccessToken("access-token")
                 .setDebug(true)
                 .setDebugLogBody(true)
@@ -119,7 +117,6 @@ class ApiConfigTest {
         assertEquals("ns__", config.getCustomObjectNamespacePrefix());
         assertEquals("__c", config.getCustomObjectSuffix());
         assertEquals("__e", config.getPlatformEventSuffix());
-        assertEquals("https://domain.my.salesforce.com", config.getDomain());
         assertEquals("access-token", config.getAccessToken());
         assertTrue(config.isDebug());
         assertTrue(config.isDebugLogBody());

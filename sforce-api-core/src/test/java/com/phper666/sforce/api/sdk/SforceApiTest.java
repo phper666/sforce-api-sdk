@@ -41,7 +41,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setOkHttpClient(client);
         return new SforceApi(config);
     }
@@ -216,7 +216,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns")
                 .setOkHttpClient(client);
 
@@ -258,7 +258,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns")
                 .setOkHttpClient(client);
 
@@ -289,7 +289,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns")
                 .setOkHttpClient(client);
 
@@ -321,7 +321,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns")
                 .setOkHttpClient(client);
 
@@ -370,7 +370,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns");
         SforceApi api = new SforceApi(config);
 
@@ -388,7 +388,7 @@ class SforceApiTest {
         SdkConfig noNsConfig = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("");
         SforceApi noNsApi = new SforceApi(noNsConfig);
         assertEquals("MyObj__c", resolveType.invoke(noNsApi.sobject(), "MyObj__c"));
@@ -399,7 +399,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns");
         SforceApi api = new SforceApi(config);
 
@@ -419,7 +419,7 @@ class SforceApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(ACCESS_TOKEN)
-                .setDomain(DOMAIN)
+                .setLoginEndpoint(DOMAIN)
                 .setCustomObjectNamespace("myns")
                 .setAutoResolveCustomObjects(false);
         SforceApi api = new SforceApi(config);

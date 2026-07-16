@@ -33,7 +33,7 @@ class FileApiTest {
         SdkConfig config = new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken("test-token")
-                .setDomain("https://test.salesforce.com")
+                .setLoginEndpoint("https://test.salesforce.com")
                 .setOkHttpClient(client);
         return new SforceApi(config);
     }

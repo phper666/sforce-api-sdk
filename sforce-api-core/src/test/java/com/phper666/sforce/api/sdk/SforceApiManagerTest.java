@@ -26,7 +26,7 @@ class SforceApiManagerTest {
         return new SdkConfig()
                 .setAuthFlow(AuthFlow.ACCESS_TOKEN)
                 .setAccessToken(token)
-                .setDomain("https://testinstance.salesforce.com")
+                .setLoginEndpoint("https://testinstance.salesforce.com")
                 .setOkHttpClient(new OkHttpClient());
     }
 

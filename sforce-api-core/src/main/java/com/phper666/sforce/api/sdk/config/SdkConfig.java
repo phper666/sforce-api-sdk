@@ -24,7 +24,6 @@ public class SdkConfig {
     private String customObjectNamespace;
     private String customObjectSuffix = "__c";
     private String platformEventSuffix = "__e";
-    private String domain;
     private String accessToken;
     private boolean debug;
     private boolean debugLogBody;
@@ -77,9 +76,6 @@ public class SdkConfig {
     public String getCustomObjectSuffix() { return customObjectSuffix; }
     
     public String getPlatformEventSuffix() { return platformEventSuffix; }
-    
-    public String getDomain() { return domain; }
-    public SdkConfig setDomain(String domain) { this.domain = domain; return this; }
     
     public String getAccessToken() { return accessToken; }
     public SdkConfig setAccessToken(String accessToken) { this.accessToken = accessToken; return this; }

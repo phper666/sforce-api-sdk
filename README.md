@@ -122,7 +122,7 @@ var config = new SdkConfig()
 var config = new SdkConfig()
     .setAuthFlow(AuthFlow.ACCESS_TOKEN)
     .setAccessToken("00D...")
-    .setDomain("https://mydomain.my.salesforce.com");
+    .setLoginEndpoint("https://mydomain.my.salesforce.com");
 ```
 
 ## 子 API 访问

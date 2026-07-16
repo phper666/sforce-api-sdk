@@ -31,7 +31,7 @@ public class SforceApiFactory {
         config.setClientId(app.getConsumerKey());
         config.setClientSecret(app.getConsumerSecret());
         config.setLoginEndpoint(app.getLoginEndpoint());
-        config.setDomain(domain);
+        config.setLoginEndpoint(domain);
         config.setCustomObjectNamespace(properties.getCustomObjectNamespace());
         config.setDebug(app.isDebug());
         config.setDebugLogBody(app.isDebugLogBody());
