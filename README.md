@@ -675,6 +675,16 @@ sforce:
 
 DEBUG 级别输出 URL、状态码、耗时；TRACE 级别输出 body。Authorization header 自动脱敏为 `Bearer ***`。
 
+## 发布
+
+GitHub Actions 自动发布。触发方式：
+
+1. 仓库 → **Actions** → **Release** → **Run workflow**
+2. 选择版本号类型：`patch` / `minor` / `major`
+3. CI 自动：发布到 Maven Central → 创建 Release → 更新 main 分支版本号
+
+详见 [`.github/workflows/release.yml`](.github/workflows/release.yml)。
+
 ## 环境要求
 
 - Java 17+

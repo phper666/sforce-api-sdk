@@ -692,6 +692,16 @@ sforce:
 
 DEBUG level: URL, status code, timing. TRACE level: body content. Authorization header masked as `Bearer ***`.
 
+## Release
+
+Automated via GitHub Actions:
+
+1. Go to **Actions** → **Release** → **Run workflow**
+2. Select version bump type: `patch` / `minor` / `major`
+3. CI automatically: publishes to Maven Central → creates GitHub Release → bumps main branch version
+
+See [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
 ## Requirements
 
 - Java 17+
