@@ -125,6 +125,31 @@ var config = new SdkConfig()
     .setLoginEndpoint("https://mydomain.my.salesforce.com");
 ```
 
+## Token 缓存与过期刷新
+
+SDK 自动缓存访问令牌，应用层无需额外缓存。
+
+- **实例缓存**：`SforceApiManager` / `SforceApiFactory` 按 `appName:domain` 缓存 `SforceApi` 实例，token 随实例复用，不重复登录。请通过工厂/管理器获取实例，避免每次 `new SforceApi(config)` 触发重新登录。
+- **过期自动刷新**：登录响应中的 `expires_in` 会被记录，token 过期前 60 秒视为过期，下一次请求前自动调用 `refresh()` 换取新 token。
+- **401 兜底**：若服务端返回 401（token 已被吊销），会自动刷新并重试一次。
+
+> 注意：`AuthorizationCodeAuthenticator.refresh()` 目前为空实现，authorization code 流程的 token 过期后无法自动刷新，仅适合短期使用。
+
+### 拦截器与请求统计
+
+自定义 `OkHttpClient`（含拦截器）对**所有**请求生效，包括认证请求（`/services/oauth2/token`）。如需统计业务 API 调用量，请在拦截器中过滤认证端点：
+
+```java
+public Response intercept(Chain chain) throws IOException {
+    Request request = chain.request();
+    // 只统计业务 API 请求，排除 token 端点
+    if (!request.url().encodedPath().contains("/services/oauth2/token")) {
+        requestCounter.incrementAndGet();
+    }
+    return chain.proceed(request);
+}
+```
+
 ## 子 API 访问
 
 ```java

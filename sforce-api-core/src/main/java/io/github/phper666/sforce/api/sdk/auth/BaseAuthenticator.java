@@ -17,7 +17,7 @@ import java.util.Map;
  * @author Yuzhao.Li
  */
 public abstract class BaseAuthenticator {
-    protected final static OkHttpClient HTTP_CLIENT = new OkHttpClient();
+    private final static OkHttpClient DEFAULT_HTTP_CLIENT = new OkHttpClient();
 
     protected SdkConfig config;
     protected Session session;
@@ -37,7 +37,8 @@ public abstract class BaseAuthenticator {
         var request = new Request.Builder().url(url)
                 .addHeader("Accept", "application/json").post(formBody).build();
 
-        try (var response = HTTP_CLIENT.newCall(request).execute()) {
+        OkHttpClient client = config.getOkHttpClient() != null ? config.getOkHttpClient() : DEFAULT_HTTP_CLIENT;
+        try (var response = client.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 var responseBody = response.body();
                 if (responseBody == null) {

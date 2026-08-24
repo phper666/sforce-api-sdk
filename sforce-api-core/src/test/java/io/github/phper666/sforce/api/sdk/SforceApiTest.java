@@ -535,4 +535,91 @@ class SforceApiTest {
         assertFalse(result.get("k2").isSuccess());
         assertNotNull(result.get("k2").getErrors());
     }
+
+    // ── Token expiry auto-refresh ──
+
+    @Test
+    void expiredTokenRefreshesBeforeNextRequest() throws Exception {
+        AtomicInteger tokenCalls = new AtomicInteger();
+        AtomicReference<String> lastAuthHeader = new AtomicReference<>();
+
+        OkHttpClient client = new OkHttpClient.Builder().addInterceptor(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().contains("/services/oauth2/token")) {
+                // token endpoint → return long-lived token for login
+                int n = tokenCalls.incrementAndGet();
+                return buildResponse(request, 200,
+                        "{\"access_token\":\"token-" + n + "\",\"instance_url\":\"https://testinstance.salesforce.com\",\"expires_in\":3600}");
+            }
+            // business request → capture the Authorization header used
+            lastAuthHeader.set(request.header("Authorization"));
+            return buildResponse(request, 200,
+                    "{\"totalSize\":1,\"done\":true,\"records\":[{\"Name\":\"Test\"}],\"nextRecordsUrl\":null}");
+        }).build();
+
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.CLIENT_CREDENTIAL)
+                .setClientId("client-id")
+                .setClientSecret("client-secret")
+                .setLoginEndpoint("https://testinstance.salesforce.com")
+                .setOkHttpClient(client);
+        SforceApi api = new SforceApi(config); // login → token endpoint call #1 (token-1, long-lived)
+
+        // First request with fresh token
+        api.query().soqlQuery("SELECT Id FROM Account", Map.class);
+        assertEquals("Bearer token-1", lastAuthHeader.get(), "first request should use token-1");
+        assertEquals(1, tokenCalls.get(), "no refresh before expiry");
+
+        // Force session to expire (simulate token reaching its expiry time)
+        expireSession(api);
+
+        // Next request should detect expiry → refresh → use token-2
+        api.query().soqlQuery("SELECT Id FROM Account", Map.class);
+        assertEquals("Bearer token-2", lastAuthHeader.get(), "expired token should trigger refresh to token-2");
+        assertEquals(2, tokenCalls.get(), "token endpoint should be called exactly twice: login + refresh");
+    }
+
+    /** Replaces the session held by every sub-API with an already-expired one. */
+    private static void expireSession(SforceApi api) throws Exception {
+        io.github.phper666.sforce.api.sdk.config.Session expired = new io.github.phper666.sforce.api.sdk.config.Session(
+                api.getAccessToken(), api.getApiEndpoint(), System.currentTimeMillis() - 5000);
+        // sub-APIs expose their BaseApi session field via the public `session` field
+        java.lang.reflect.Field sessionField = BaseApi.class.getDeclaredField("session");
+        sessionField.setAccessible(true);
+        sessionField.set(api.query(), expired);
+    }
+
+    @Test
+    void unexpiredTokenNotRefreshed() {
+        AtomicInteger tokenCalls = new AtomicInteger();
+        AtomicReference<String> lastAuthHeader = new AtomicReference<>();
+
+        OkHttpClient client = new OkHttpClient.Builder().addInterceptor(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().contains("/services/oauth2/token")) {
+                int n = tokenCalls.incrementAndGet();
+                return buildResponse(request, 200,
+                        "{\"access_token\":\"token-" + n + "\",\"instance_url\":\"https://testinstance.salesforce.com\",\"expires_in\":3600}");
+            }
+            lastAuthHeader.set(request.header("Authorization"));
+            return buildResponse(request, 200,
+                    "{\"totalSize\":1,\"done\":true,\"records\":[{\"Name\":\"Test\"}],\"nextRecordsUrl\":null}");
+        }).build();
+
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.CLIENT_CREDENTIAL)
+                .setClientId("client-id")
+                .setClientSecret("client-secret")
+                .setLoginEndpoint("https://testinstance.salesforce.com")
+                .setOkHttpClient(client);
+        SforceApi api = new SforceApi(config); // login → token endpoint call #1
+
+        // Multiple requests while token still valid → no refresh
+        api.query().soqlQuery("SELECT Id FROM Account", Map.class);
+        api.query().soqlQuery("SELECT Id FROM Account", Map.class);
+        api.query().soqlQuery("SELECT Id FROM Account", Map.class);
+
+        assertEquals(1, tokenCalls.get(), "valid token should NOT be refreshed");
+        assertEquals("Bearer token-1", lastAuthHeader.get());
+    }
 }
