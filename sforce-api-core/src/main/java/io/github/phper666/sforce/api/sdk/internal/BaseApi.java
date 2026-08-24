@@ -84,6 +84,10 @@ public abstract class BaseApi {
         return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/jobs/ingest";
     }
 
+    protected String bulkQueryApiUriBase() {
+        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/jobs/query";
+    }
+
     protected String chatterFileUploadUrl() {
         return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + "/connect/files/users/me";
     }
@@ -172,6 +176,9 @@ public abstract class BaseApi {
     }
 
     protected Response execute(String url, String method, RequestBody requestBody, Map<String, String> headers, TimeoutSettings timeOutConfig) throws IOException {
+        if (session.isExpired()) {
+            session = authFlow.refresh();
+        }
         Request request = buildRequest(url, method, requestBody, headers, timeOutConfig);
         Response response = okHttpClient.newCall(request).execute();
         if (response.code() == 401) {

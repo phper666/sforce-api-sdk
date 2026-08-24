@@ -45,7 +45,11 @@ public abstract class BaseAuthenticator {
                 }
                 var body = responseBody.string();
                 var resp = (Map<String, Object>) jsonSerializer.fromJson(body, Map.class);
-                session = new Session((String) resp.get("access_token"), (String) resp.get("instance_url"));
+                long expiresAt = 0;
+                if (resp.get("expires_in") instanceof Number n) {
+                    expiresAt = System.currentTimeMillis() + n.longValue() * 1000;
+                }
+                session = new Session((String) resp.get("access_token"), (String) resp.get("instance_url"), expiresAt);
             } else {
                 var responseBody = response.body();
                 var errorBody = responseBody != null ? responseBody.string() : "";

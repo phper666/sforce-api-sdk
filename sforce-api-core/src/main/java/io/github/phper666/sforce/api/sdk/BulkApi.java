@@ -10,6 +10,10 @@ import io.github.phper666.sforce.api.sdk.auth.BaseAuthenticator;
 import io.github.phper666.sforce.api.sdk.internal.BaseApi;
 import io.github.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
 import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -97,6 +101,82 @@ public class BulkApi extends BaseApi {
         }
     }
 
+    // ──────────────────────────────────────────────
+    // Bulk API 2.0 Query
+    // ──────────────────────────────────────────────
+
+    /**
+     * Create a Bulk API 2.0 query job.
+     *
+     * @param request        query job request (object + SOQL query)
+     * @param timeOutConfig  per-request timeout settings
+     * @return query job details
+     */
+    @SneakyThrows
+    @SuppressWarnings("unchecked")
+    public BulkApiQueryJobResponse createBulkQueryJob(BulkApiQueryJobRequest request, TimeoutSettings timeOutConfig) {
+        var url = bulkQueryApiUriBase();
+        var rb = RequestBody.create(JSON_MEDIA, jsonSerializer.toJson(request));
+        var body = executeGetBody(url, HttpMethod.POST.name(), rb, EMPTY_HEADERS, timeOutConfig);
+        return (BulkApiQueryJobResponse) jsonSerializer.fromJson(body, BulkApiQueryJobResponse.class);
+    }
+
+    /**
+     * Get the status of a Bulk API 2.0 query job.
+     *
+     * @param bulkQueryJobId query job id
+     * @param timeOutConfig  per-request timeout settings
+     * @return query job details
+     */
+    @SuppressWarnings("unchecked")
+    public BulkApiQueryJobResponse getBulkQueryJob(String bulkQueryJobId, TimeoutSettings timeOutConfig) {
+        String url = bulkQueryApiUriBase() + "/" + bulkQueryJobId;
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
+        try {
+            String body = executeGetBody(url, HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+            return (BulkApiQueryJobResponse) jsonSerializer.fromJson(body, BulkApiQueryJobResponse.class);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Download the results of a completed Bulk API 2.0 query job.
+     *
+     * @param bulkQueryJobId query job id
+     * @param dstFile        destination file for the CSV result
+     * @param timeOutConfig  per-request timeout settings
+     */
+    public void downloadBulkQueryJobResult(String bulkQueryJobId, File dstFile, TimeoutSettings timeOutConfig) {
+        String url = bulkQueryApiUriBase() + "/" + bulkQueryJobId + "/results";
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.ACCEPT, TEXT_CSV_MEDIA.type());
+        try {
+            String body = executeGetBody(url, HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(dstFile))) {
+                writer.write(body);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Delete a Bulk API 2.0 query job.
+     *
+     * @param bulkQueryJobId query job id
+     * @param timeOutConfig  per-request timeout settings
+     */
+    public void deleteBulkQueryJob(String bulkQueryJobId, TimeoutSettings timeOutConfig) {
+        String url = bulkQueryApiUriBase() + "/" + bulkQueryJobId;
+        try {
+            executeGetBody(url, HttpMethod.DELETE.name(), EMPTY_BODY, EMPTY_HEADERS, timeOutConfig);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 
     public enum ColumnDelimiter {
         BACKQUOTE, CARET, COMMA, PIPE, SEMICOLON, TAB
@@ -111,7 +191,8 @@ public class BulkApi extends BaseApi {
         @SerializedName("delete") DELETE,
         @SerializedName("hardDelete") HARD_DELETE,
         @SerializedName("update") UPDATE,
-        @SerializedName("upsert") UPSERT
+        @SerializedName("upsert") UPSERT,
+        @SerializedName("query") QUERY
     }
 
     public enum JobResultType {
