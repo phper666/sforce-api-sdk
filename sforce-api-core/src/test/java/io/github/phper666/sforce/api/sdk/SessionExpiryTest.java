@@ -34,4 +34,12 @@ class SessionExpiryTest {
                 System.currentTimeMillis() + 30_000);
         assertTrue(session.isExpired());
     }
+
+    @Test
+    void sessionExactlyAtSafetyMarginBoundaryExpired() {
+        // Exactly 60s left == safety margin → boundary should be treated as expired
+        Session session = new Session("token", "https://test.salesforce.com",
+                System.currentTimeMillis() + 60_000);
+        assertTrue(session.isExpired());
+    }
 }
