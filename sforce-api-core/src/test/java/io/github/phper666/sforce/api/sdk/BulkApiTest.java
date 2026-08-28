@@ -6,11 +6,14 @@ import io.github.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+import io.github.phper666.sforce.api.sdk.serialize.GsonJsonSerializer;
 import okhttp3.*;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,6 +29,19 @@ class BulkApiTest {
                 .message(code == 401 ? "Unauthorized" : "OK")
                 .body(ResponseBody.create(MediaType.parse("application/json"), body))
                 .build();
+    }
+
+    private static Response buildResponse(Request request, int code, String body, String... headers) {
+        Response.Builder builder = new Response.Builder()
+                .request(request)
+                .protocol(Protocol.HTTP_1_1)
+                .code(code)
+                .message(code == 401 ? "Unauthorized" : "OK")
+                .body(ResponseBody.create(MediaType.parse("text/csv"), body));
+        for (int i = 0; i + 1 < headers.length; i += 2) {
+            builder.addHeader(headers[i], headers[i + 1]);
+        }
+        return builder.build();
     }
 
     private static SforceApi apiWith(Interceptor interceptor) {
@@ -192,5 +208,132 @@ class BulkApiTest {
 
         assertTrue(capturedPath.get().contains("/jobs/query/751xx000000004"));
         assertEquals("DELETE", capturedMethod.get());
+    }
+
+    @Test
+    void downloadBulkQueryJobResultPages() throws Exception {
+        AtomicInteger callCount = new AtomicInteger();
+        AtomicReference<String> secondUrl = new AtomicReference<>();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            int n = callCount.incrementAndGet();
+            if (n == 1) {
+                return buildResponse(request, 200, "Id,Name\n001,Alice\n002,Bob\n",
+                        "Sforce-Locator", "locator1", "Sforce-NumberOfRecords", "2");
+            }
+            secondUrl.set(request.url().toString());
+            return buildResponse(request, 200, "Id,Name\n003,Carol\n", "Sforce-Locator", "null");
+        });
+
+        File dst = File.createTempFile("bulk-query-paged", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResult("751xx000000003", dst, null, null);
+
+        assertEquals(2, callCount.get());
+        assertTrue(secondUrl.get().contains("?locator=locator1"));
+        assertEquals("Id,Name\n001,Alice\n002,Bob\n003,Carol\n", Files.readString(dst.toPath()));
+    }
+
+    @Test
+    void downloadBulkQueryJobResultMaxRecords() throws Exception {
+        AtomicReference<String> capturedUrl = new AtomicReference<>();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            capturedUrl.set(request.url().toString());
+            return buildResponse(request, 200, "Id,Name\n001,Test\n", "Sforce-Locator", "null");
+        });
+
+        File dst = File.createTempFile("bulk-query-max", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResult("751xx000000003", dst, 500, null);
+
+        assertTrue(capturedUrl.get().contains("maxRecords=500"));
+    }
+
+    @Test
+    void waitForJobComplete() {
+        AtomicInteger callCount = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            int n = callCount.incrementAndGet();
+            if (n == 1) {
+                return buildResponse(chain.request(), 200, "{\"id\":\"751xx000000005\",\"state\":\"InProgress\"}");
+            }
+            return buildResponse(chain.request(), 200, "{\"id\":\"751xx000000005\",\"state\":\"JobComplete\"}");
+        });
+
+        BulkApiQueryJobResponse response = api.bulk().waitForJobComplete("751xx000000005", 10L, 5000L, null);
+
+        assertEquals(BulkApi.JobState.JOB_COMPLETE, response.getState());
+        assertTrue(callCount.get() >= 2);
+    }
+
+    @Test
+    void waitForJobCompleteFailed() {
+        SforceApi api = apiWith(chain ->
+                buildResponse(chain.request(), 200, "{\"id\":\"751xx000000006\",\"state\":\"Failed\"}"));
+
+        assertThrows(IllegalStateException.class,
+                () -> api.bulk().waitForJobComplete("751xx000000006", 10L, 5000L, null));
+    }
+
+    @Test
+    void queryAllOperationSerialization() {
+        BulkApiQueryJobRequest request = new BulkApiQueryJobRequest()
+                .setObject("Account")
+                .setQuery("SELECT Id FROM Account")
+                .setOperation(BulkApi.JobOperation.QUERY_ALL);
+
+        String json = GsonJsonSerializer.INSTANCE().toJson(request);
+        assertTrue(json.contains("\"queryAll\""));
+
+        BulkApiQueryJobResponse response = (BulkApiQueryJobResponse) GsonJsonSerializer.INSTANCE()
+                .fromJson("{\"operation\":\"queryAll\"}", BulkApiQueryJobResponse.class);
+        assertEquals(BulkApi.JobOperation.QUERY_ALL, response.getOperation());
+    }
+
+    @Test
+    void runQueryJobs() throws Exception {
+        AtomicInteger jobCounter = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            String method = request.method();
+            if (method.equals("POST") && path.endsWith("/jobs/query")) {
+                String id = "751xx00000000" + jobCounter.incrementAndGet();
+                return buildResponse(request, 200, "{\"id\":\"" + id + "\",\"state\":\"UploadComplete\"}");
+            }
+            if (path.endsWith("/results")) {
+                String[] parts = path.split("/");
+                String jobId = parts[parts.length - 2];
+                String name = jobId.endsWith("1") ? "Alice" : "Bob";
+                return buildResponse(request, 200, "Id,Name\n" + name + "\n", "Sforce-Locator", "null");
+            }
+            // GET /jobs/query/{id} → JobComplete immediately, avoids 3s default poll sleep
+            return buildResponse(request, 200, "{\"id\":\"751xx000000009\",\"state\":\"JobComplete\"}");
+        });
+
+        File dstDir = Files.createTempDirectory("bulk-query-jobs").toFile();
+        List<String> queries = List.of("SELECT Id FROM Account", "SELECT Name FROM Contact");
+
+        Map<String, File> results = api.bulk().runQueryJobs(queries, "Account", dstDir, 2, null, null);
+
+        assertEquals(2, results.size());
+        assertEquals("Id,Name\nAlice\n", Files.readString(results.get(queries.get(0)).toPath()));
+        assertEquals("Id,Name\nBob\n", Files.readString(results.get(queries.get(1)).toPath()));
+        for (File f : results.values()) {
+            assertTrue(f.exists());
+            assertTrue(f.length() > 0);
+        }
+    }
+
+    @Test
+    void waitForJobCompleteTimeout() {
+        SforceApi api = apiWith(chain ->
+                buildResponse(chain.request(), 200, "{\"id\":\"751xx000000007\",\"state\":\"InProgress\"}"));
+
+        assertThrows(IllegalStateException.class,
+                () -> api.bulk().waitForJobComplete("751xx000000007", 10L, 100L, null));
     }
 }
