@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -289,5 +291,49 @@ class BulkApiTest {
         BulkApiQueryJobResponse response = (BulkApiQueryJobResponse) GsonJsonSerializer.INSTANCE()
                 .fromJson("{\"operation\":\"queryAll\"}", BulkApiQueryJobResponse.class);
         assertEquals(BulkApi.JobOperation.QUERY_ALL, response.getOperation());
+    }
+
+    @Test
+    void runQueryJobs() throws Exception {
+        AtomicInteger jobCounter = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            String method = request.method();
+            if (method.equals("POST") && path.endsWith("/jobs/query")) {
+                String id = "751xx00000000" + jobCounter.incrementAndGet();
+                return buildResponse(request, 200, "{\"id\":\"" + id + "\",\"state\":\"UploadComplete\"}");
+            }
+            if (path.endsWith("/results")) {
+                String[] parts = path.split("/");
+                String jobId = parts[parts.length - 2];
+                String name = jobId.endsWith("1") ? "Alice" : "Bob";
+                return buildResponse(request, 200, "Id,Name\n" + name + "\n", "Sforce-Locator", "null");
+            }
+            // GET /jobs/query/{id} → JobComplete immediately, avoids 3s default poll sleep
+            return buildResponse(request, 200, "{\"id\":\"751xx000000009\",\"state\":\"JobComplete\"}");
+        });
+
+        File dstDir = Files.createTempDirectory("bulk-query-jobs").toFile();
+        List<String> queries = List.of("SELECT Id FROM Account", "SELECT Name FROM Contact");
+
+        Map<String, File> results = api.bulk().runQueryJobs(queries, "Account", dstDir, 2, null, null);
+
+        assertEquals(2, results.size());
+        assertEquals("Id,Name\nAlice\n", Files.readString(results.get(queries.get(0)).toPath()));
+        assertEquals("Id,Name\nBob\n", Files.readString(results.get(queries.get(1)).toPath()));
+        for (File f : results.values()) {
+            assertTrue(f.exists());
+            assertTrue(f.length() > 0);
+        }
+    }
+
+    @Test
+    void waitForJobCompleteTimeout() {
+        SforceApi api = apiWith(chain ->
+                buildResponse(chain.request(), 200, "{\"id\":\"751xx000000007\",\"state\":\"InProgress\"}"));
+
+        assertThrows(IllegalStateException.class,
+                () -> api.bulk().waitForJobComplete("751xx000000007", 10L, 100L, null));
     }
 }
