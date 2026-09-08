@@ -2,15 +2,20 @@ package io.github.phper666.sforce.api.sdk;
 
 import io.github.phper666.sforce.api.sdk.config.AuthFlow;
 import io.github.phper666.sforce.api.sdk.config.SdkConfig;
+import io.github.phper666.sforce.api.sdk.exception.ApiException;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
 import io.github.phper666.sforce.api.sdk.model.ObjectDescribeResponse;
 import io.github.phper666.sforce.api.sdk.model.PageQueryResponse;
 import io.github.phper666.sforce.api.sdk.model.SObjectMetadata;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -147,5 +152,94 @@ public class SforceApiLiveTest {
         var result = fresh.query().soqlQuery("SELECT Id FROM Account LIMIT 1", Map.class);
         assertTrue(result.getTotalSize() >= 0, "new instance should query successfully");
         System.out.println("✅ New instance works independently: " + fresh.getAccessToken().substring(0, 20) + "...");
+    }
+
+    // ── Bulk API 2.0 Query（真实 org）──
+
+    private static String pickQueryableObject() {
+        // 优先选择真实有数据的标准对象（Contact），确保验证到实际数据行；
+        // 回退到任意可查询对象（可能 0 行，仅验证链路）。
+        String preferred = api.sobject().listObjects().stream()
+                .filter(SObjectMetadata::isQueryable)
+                .map(SObjectMetadata::getName)
+                .filter("Contact"::equals)
+                .findFirst()
+                .orElse(null);
+        if (preferred != null) {
+            return preferred;
+        }
+        return api.sobject().listObjects().stream()
+                .filter(SObjectMetadata::isQueryable)
+                .filter(o -> !o.isCustom())
+                .map(SObjectMetadata::getName)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("no queryable object found in this org"));
+    }
+
+    @Test
+    void bulkQueryForEachResultPage() {
+        String objectName = pickQueryableObject();
+        System.out.println("📋 Bulk query object: " + objectName);
+
+        BulkApiQueryJobRequest request = new BulkApiQueryJobRequest()
+                .setObject(objectName)
+                .setQuery("SELECT Id FROM " + objectName + " LIMIT 5000");
+        BulkApiQueryJobResponse job = api.bulk().createBulkQueryJob(request, null);
+        System.out.println("✅ Created bulk query job: " + job.getId() + " state=" + job.getState());
+
+        // 先取 JobComplete 态的 numberRecordsProcessed 作为核对基准（创建响应里该字段为 null）
+        BulkApiQueryJobResponse completed = api.bulk().waitForJobComplete(job.getId(), 1000L, 120000L, null);
+        System.out.println("📊 JobComplete numberRecordsProcessed=" + completed.getNumberRecordsProcessed());
+
+        AtomicInteger pageCount = new AtomicInteger();
+        AtomicInteger rowCount = new AtomicInteger();
+        // maxRecords=1000 强制多页分页，验证 locator 翻页链路
+        api.bulk().forEachResultPage(job.getId(), 1000, 1000L, 120000L,
+                page -> {
+                    pageCount.incrementAndGet();
+                    rowCount.addAndGet(page.size());
+                },
+                null, true);
+
+        System.out.println("✅ forEachResultPage pages=" + pageCount.get() + " rows=" + rowCount.get());
+        assertTrue(rowCount.get() > 0, "should receive real data rows");
+        assertEquals(completed.getNumberRecordsProcessed(), rowCount.get(),
+                "received rows must match job numberRecordsProcessed");
+
+        // deleteOnComplete=true → job 应已被删除，getBulkQueryJob 应报 404
+        assertThrows(ApiException.class, () -> api.bulk().getBulkQueryJob(job.getId(), null));
+    }
+
+    @Test
+    void bulkQueryIterator() {
+        String objectName = pickQueryableObject();
+
+        BulkApiQueryJobRequest request = new BulkApiQueryJobRequest()
+                .setObject(objectName)
+                .setQuery("SELECT Id FROM " + objectName + " LIMIT 5000");
+        BulkApiQueryJobResponse job = api.bulk().createBulkQueryJob(request, null);
+        System.out.println("✅ Created bulk query job: " + job.getId() + " state=" + job.getState());
+
+        // 先取 JobComplete 态的 numberRecordsProcessed 作为核对基准（创建响应里该字段为 null）
+        BulkApiQueryJobResponse completed = api.bulk().waitForJobComplete(job.getId(), 1000L, 120000L, null);
+        System.out.println("📊 JobComplete numberRecordsProcessed=" + completed.getNumberRecordsProcessed());
+
+        int rows = 0;
+        int pages = 0;
+        try (BulkApi.QueryResultIterator it = api.bulk()
+                .queryResultIterator(job.getId(), 1000, 1000L, 120000L, null, true)) {
+            while (it.hasNext()) {
+                pages++;
+                rows += it.next().size();
+            }
+        }
+
+        System.out.println("✅ QueryResultIterator pages=" + pages + " rows=" + rows);
+        assertTrue(rows > 0, "should receive real data rows");
+        assertEquals(completed.getNumberRecordsProcessed(), rows,
+                "received rows must match job numberRecordsProcessed");
+
+        // close() 且完整消费 → deleteOnComplete=true → job 应已删除
+        assertThrows(ApiException.class, () -> api.bulk().getBulkQueryJob(job.getId(), null));
     }
 }

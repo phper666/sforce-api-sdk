@@ -7,11 +7,13 @@ import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
 import io.github.phper666.sforce.api.sdk.serialize.GsonJsonSerializer;
+import com.google.gson.JsonObject;
 import okhttp3.*;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -335,5 +337,242 @@ class BulkApiTest {
 
         assertThrows(IllegalStateException.class,
                 () -> api.bulk().waitForJobComplete("751xx000000007", 10L, 100L, null));
+    }
+
+    @Test
+    void jobStateInProgressDeserializes() {
+        BulkApiQueryJobResponse response = (BulkApiQueryJobResponse) GsonJsonSerializer.INSTANCE()
+                .fromJson("{\"id\":\"751xx000000008\",\"state\":\"InProgress\"}", BulkApiQueryJobResponse.class);
+        assertEquals(BulkApi.JobState.IN_PROGRESS, response.getState());
+    }
+
+    // ── forEachResultPage / QueryResultIterator ──
+
+    private SforceApi apiWithBulkQueryMock(AtomicInteger deleteCount) {
+        return apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            String method = request.method();
+            if (method.equals("DELETE") && path.endsWith("/jobs/query/751xx000000010")) {
+                deleteCount.incrementAndGet();
+                return buildResponse(request, 200, "");
+            }
+            if (path.endsWith("/results")) {
+                String locator = request.url().queryParameter("locator");
+                if (locator == null) {
+                    // 第一页：两行数据 + 下一页 token
+                    return buildResponse(request, 200,
+                            "Id,Name\n001,Alice\n002,Bob\n",
+                            "Sforce-Locator", "page2-token");
+                }
+                assertEquals("page2-token", locator, "second page must pass the locator back");
+                // 第二页：一行数据 + 结束标记
+                return buildResponse(request, 200,
+                        "Id,Name\n003,Carol\n",
+                        "Sforce-Locator", "null");
+            }
+            // GET job status → JobComplete, numberRecordsProcessed=3
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000010\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":3}");
+        });
+    }
+
+    @Test
+    void forEachResultPagePagesThroughLocator() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+        List<List<JsonObject>> pages = new ArrayList<>();
+
+        api.bulk().forEachResultPage("751xx000000010", null, null, null,
+                pages::add, null, true);
+
+        assertEquals(2, pages.size(), "should receive 2 pages");
+        assertEquals(2, pages.get(0).size());
+        assertEquals(1, pages.get(1).size());
+        assertEquals("001", pages.get(0).get(0).get("Id").getAsString());
+        assertEquals("Alice", pages.get(0).get(0).get("Name").getAsString());
+        assertEquals("003", pages.get(1).get(0).get("Id").getAsString());
+        assertEquals(1, deleteCount.get(), "deleteOnComplete=true must delete the job after full consumption");
+    }
+
+    @Test
+    void forEachResultPageDeleteOnCompleteFalseKeepsJob() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+
+        api.bulk().forEachResultPage("751xx000000010", null, null, null,
+                p -> { }, null, false);
+
+        assertEquals(0, deleteCount.get(), "deleteOnComplete=false must not delete the job");
+    }
+
+    @Test
+    void forEachResultPageConsumerExceptionKeepsJob() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+
+        assertThrows(IllegalStateException.class, () -> api.bulk().forEachResultPage(
+                "751xx000000010", null, null, null,
+                p -> { throw new IllegalStateException("consumer failed"); },
+                null, true));
+
+        assertEquals(0, deleteCount.get(), "failure must NOT delete the job, even with deleteOnComplete=true");
+    }
+
+    @Test
+    void forEachResultPageRowCountMismatchThrowsAndKeepsJob() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/results")) {
+                // 只返回一页两行，但 job 声称处理了 3 行
+                return buildResponse(request, 200,
+                        "Id,Name\n001,Alice\n002,Bob\n",
+                        "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000010\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":3}");
+        });
+
+        assertThrows(IllegalStateException.class, () -> api.bulk().forEachResultPage(
+                "751xx000000010", null, null, null, p -> { }, null, true));
+
+        assertEquals(0, deleteCount.get(), "row-count mismatch must NOT delete the job");
+    }
+
+    @Test
+    void queryResultIteratorFullConsumptionDeletesOnClose() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+        List<JsonObject> all = new ArrayList<>();
+
+        try (BulkApi.QueryResultIterator it = api.bulk()
+                .queryResultIterator("751xx000000010", null, null, null, null, true)) {
+            while (it.hasNext()) {
+                all.addAll(it.next());
+            }
+        }
+
+        assertEquals(3, all.size());
+        assertEquals(1, deleteCount.get(), "full consumption + deleteOnComplete must delete on close");
+    }
+
+    @Test
+    void queryResultIteratorEarlyBreakKeepsJob() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+
+        try (BulkApi.QueryResultIterator it = api.bulk()
+                .queryResultIterator("751xx000000010", null, null, null, null, true)) {
+            if (it.hasNext()) {
+                it.next(); // 只消费第一页就提前退出
+            }
+        }
+
+        assertEquals(0, deleteCount.get(), "early break must NOT delete the job, even with deleteOnComplete=true");
+    }
+
+    @Test
+    void queryResultIteratorNoSuchElement() {
+        SforceApi api = apiWithBulkQueryMock(new AtomicInteger());
+        try (BulkApi.QueryResultIterator it = api.bulk()
+                .queryResultIterator("751xx000000010", null, null, null, null, false)) {
+            while (it.hasNext()) {
+                it.next();
+            }
+            assertThrows(java.util.NoSuchElementException.class, it::next);
+        }
+    }
+
+    // ── CSV 解析边界（parseCsvToJson 经 forEachResultPage 覆盖）──
+
+    @Test
+    void csvQuotedNewlineParsedAsSingleRecord() {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/results")) {
+                // 长文本字段：引号内包含换行，必须解析为一条记录
+                return buildResponse(request, 200,
+                        "Id,Name,Description\n001,Alice,\"line1\nline2\"\n",
+                        "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000011\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":1}");
+        });
+        List<List<JsonObject>> pages = new ArrayList<>();
+
+        api.bulk().forEachResultPage("751xx000000011", null, null, null, pages::add, null, false);
+
+        assertEquals(1, pages.get(0).size(), "quoted newline must stay one record");
+        assertEquals("line1\nline2", pages.get(0).get(0).get("Description").getAsString());
+    }
+
+    @Test
+    void csvNulBytesStrippedBeforeParsing() {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/results")) {
+                // NUL 字节（\u0000）应被剥除后再解析，见 airbyte#8300
+                return buildResponse(request, 200,
+                        "Id,Name\n001,Alice\u0000X\n",
+                        "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000012\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":1}");
+        });
+        List<List<JsonObject>> pages = new ArrayList<>();
+
+        api.bulk().forEachResultPage("751xx000000012", null, null, null, pages::add, null, false);
+
+        assertEquals("AliceX", pages.get(0).get(0).get("Name").getAsString(),
+                "NUL byte must be stripped from field values");
+    }
+
+    @Test
+    void csvEmptyResultYieldsZeroRecords() {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/results")) {
+                // 仅表头、无数据行
+                return buildResponse(request, 200, "Id,Name\n", "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000013\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":0}");
+        });
+        List<List<JsonObject>> pages = new ArrayList<>();
+
+        api.bulk().forEachResultPage("751xx000000013", null, null, null, pages::add, null, false);
+
+        assertEquals(0, pages.get(0).size(), "header-only CSV must parse to zero records");
+    }
+
+    @Test
+    void queryResultIteratorRowCountMismatchThrows() {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/results")) {
+                // 一页两行，但 job 声称 3 行
+                return buildResponse(request, 200,
+                        "Id,Name\n001,Alice\n002,Bob\n",
+                        "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200,
+                    "{\"id\":\"751xx000000014\",\"state\":\"JobComplete\",\"numberRecordsProcessed\":3}");
+        });
+
+        try (BulkApi.QueryResultIterator it = api.bulk()
+                .queryResultIterator("751xx000000014", null, null, null, null, false)) {
+            assertThrows(IllegalStateException.class, () -> {
+                while (it.hasNext()) {
+                    it.next();
+                }
+            });
+        }
     }
 }
