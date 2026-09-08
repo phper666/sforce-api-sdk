@@ -3,6 +3,8 @@ package io.github.phper666.sforce.api.sdk;
 import io.github.phper666.sforce.api.sdk.config.SdkConfig;
 import io.github.phper666.sforce.api.sdk.config.Session;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import io.github.phper666.sforce.api.sdk.config.SdkTypes.HttpMethod;
 import io.github.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
@@ -18,6 +20,9 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 import org.apache.http.HttpHeaders;
 import org.apache.http.entity.ContentType;
 
@@ -30,18 +35,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.Reader;
+import java.io.StringReader;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 @Slf4j
 public class BulkApi extends BaseApi {
@@ -130,7 +141,10 @@ public class BulkApi extends BaseApi {
     @SuppressWarnings("unchecked")
     public BulkApiQueryJobResponse createBulkQueryJob(BulkApiQueryJobRequest request, TimeoutSettings timeOutConfig) {
         var url = bulkQueryApiUriBase();
-        var rb = RequestBody.create(JSON_MEDIA, jsonSerializer.toJson(request));
+        // Bulk 2.0 query job 不接受 object 字段（SOQL 已含对象），序列化后剥除
+        JsonObject payload = JsonParser.parseString(jsonSerializer.toJson(request)).getAsJsonObject();
+        payload.remove("object");
+        var rb = RequestBody.create(JSON_MEDIA, payload.toString());
         var body = executeGetBody(url, HttpMethod.POST.name(), rb, EMPTY_HEADERS, timeOutConfig);
         return (BulkApiQueryJobResponse) jsonSerializer.fromJson(body, BulkApiQueryJobResponse.class);
     }
@@ -197,7 +211,7 @@ public class BulkApi extends BaseApi {
                 }
                 locator = resp.header("Sforce-Locator");
                 resp.close();
-                if (locator == null || "null".equals(locator)) {
+                if (locator == null || locator.isEmpty() || "null".equals(locator)) {
                     break;
                 }
             }
@@ -242,7 +256,7 @@ public class BulkApi extends BaseApi {
      * @throws IllegalStateException if job fails or times out
      */
     public BulkApiQueryJobResponse waitForJobComplete(String jobId, Long pollIntervalMs, Long timeoutMs, TimeoutSettings timeOutConfig) {
-        long interval = pollIntervalMs != null ? pollIntervalMs : 3000;
+        long interval = pollIntervalMs != null ? pollIntervalMs : 5000;
         long deadline = System.currentTimeMillis() + (timeoutMs != null ? timeoutMs : 30 * 60 * 1000);
         while (System.currentTimeMillis() < deadline) {
             BulkApiQueryJobResponse status = getBulkQueryJob(jobId, timeOutConfig);
@@ -334,6 +348,239 @@ public class BulkApi extends BaseApi {
         }
     }
 
+    /**
+     * Fetch all result pages of a completed Bulk API 2.0 query job, invoking the
+     * consumer for each page in order. Each page is parsed to a list of records
+     * (CSV header row mapped to field names, all values as strings).
+     * <p>
+     * The job is NOT deleted on failure/interruption — it is preserved so the
+     * caller can retry or inspect it. When {@code deleteOnComplete} is true the
+     * job is deleted ONLY after every page has been fully consumed and the
+     * received row count matches the job's {@code numberRecordsProcessed}.
+     *
+     * @param jobId            query job id
+     * @param maxRecords       max records per page (null = server default 50,000); only splits pages smaller
+     * @param pollIntervalMs   polling interval while waiting for job completion (null = default 5000)
+     * @param timeoutMs        max total wait for job completion (null = default 30 minutes)
+     * @param consumer         page consumer (one page at a time, caller may discard after return)
+     * @param timeOutConfig    per-request timeout settings
+     * @param deleteOnComplete delete the job after full consumption (opt-in; default false)
+     * @throws IllegalStateException if the row count does not match the job's processed count
+     */
+    public void forEachResultPage(String jobId, Integer maxRecords, Long pollIntervalMs, Long timeoutMs,
+            Consumer<List<JsonObject>> consumer, TimeoutSettings timeOutConfig, boolean deleteOnComplete) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        BulkApiQueryJobResponse job = waitForJobComplete(jobId, pollIntervalMs, timeoutMs, timeOutConfig);
+        Integer expected = job.getNumberRecordsProcessed();
+        int received = 0;
+        String locator = null;
+        try {
+            while (true) {
+                Map<String, String> headers = new HashMap<>();
+                headers.put(HttpHeaders.ACCEPT, TEXT_CSV_MEDIA.type());
+                Response resp;
+                try {
+                    resp = execute(
+                            queryResultsUrl(jobId, locator, maxRecords),
+                            HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                String body;
+                String nextLocator;
+                try {
+                    body = resp.body() == null ? "" : resp.body().string();
+                    nextLocator = resp.header("Sforce-Locator");
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    resp.close();
+                }
+                List<JsonObject> page = parseCsvToJson(body);
+                received += page.size();
+                consumer.accept(page);
+                locator = nextLocator;
+                if (locator == null || locator.isEmpty() || "null".equals(locator)) {
+                    break;
+                }
+            }
+            if (expected != null && received != expected) {
+                throw new IllegalStateException(
+                        "Bulk query result row count mismatch: expected " + expected
+                                + " but received " + received + " (job " + jobId + ")");
+            }
+            if (deleteOnComplete) {
+                deleteBulkQueryJob(jobId, timeOutConfig);
+            }
+        } catch (RuntimeException e) {
+            // 失败/中断：不删 job，保留供重试或检查
+            throw e;
+        }
+    }
+
+    /**
+     * Convenience overload: default polling, no auto-delete.
+     */
+    public void forEachResultPage(String jobId, Integer maxRecords,
+            Consumer<List<JsonObject>> consumer, TimeoutSettings timeOutConfig) {
+        forEachResultPage(jobId, maxRecords, null, null, consumer, timeOutConfig, false);
+    }
+
+    /**
+     * Lazy iterator over result pages of a completed Bulk API 2.0 query job.
+     * <p>
+     * Pages are fetched on demand (one HTTP request per page) and held in memory
+     * one at a time. The job is NOT deleted implicitly on close: use
+     * {@link #deleteBulkQueryJob(String, TimeoutSettings)} explicitly, or pass
+     * {@code deleteOnComplete=true} to the factory to auto-delete ONLY after all
+     * pages were fully consumed (early {@code break} keeps the job).
+     */
+    public class QueryResultIterator implements Iterator<List<JsonObject>>, AutoCloseable {
+        private final String jobId;
+        private final Integer maxRecords;
+        private final Long pollIntervalMs;
+        private final Long timeoutMs;
+        private final TimeoutSettings timeOutConfig;
+        private final boolean deleteOnComplete;
+
+        private boolean jobWaited;
+        private Integer expectedRows;
+        private int receivedRows;
+        private String nextLocator;
+        private List<JsonObject> bufferedPage;
+        private boolean exhausted;
+        private boolean fullyConsumed;
+        private boolean closed;
+
+        private QueryResultIterator(String jobId, Integer maxRecords, Long pollIntervalMs, Long timeoutMs,
+                TimeoutSettings timeOutConfig, boolean deleteOnComplete) {
+            this.jobId = jobId;
+            this.maxRecords = maxRecords;
+            this.pollIntervalMs = pollIntervalMs;
+            this.timeoutMs = timeoutMs;
+            this.timeOutConfig = timeOutConfig;
+            this.deleteOnComplete = deleteOnComplete;
+        }
+
+        private void ensureJobReady() {
+            if (jobWaited) {
+                return;
+            }
+            expectedRows = waitForJobComplete(jobId, pollIntervalMs, timeoutMs, timeOutConfig)
+                    .getNumberRecordsProcessed();
+            jobWaited = true;
+        }
+
+        @Override
+        public boolean hasNext() {
+            ensureJobReady();
+            if (bufferedPage == null && !exhausted) {
+                bufferedPage = fetchNextPage();
+            }
+            return bufferedPage != null;
+        }
+
+        @Override
+        public List<JsonObject> next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException("no more bulk query result pages");
+            }
+            List<JsonObject> page = bufferedPage;
+            bufferedPage = null;
+            return page;
+        }
+
+        private List<JsonObject> fetchNextPage() {
+            Map<String, String> headers = new HashMap<>();
+            headers.put(HttpHeaders.ACCEPT, TEXT_CSV_MEDIA.type());
+            Response resp;
+            try {
+                resp = execute(
+                        queryResultsUrl(jobId, nextLocator, maxRecords),
+                        HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            String body;
+            String locatorHeader;
+            try {
+                body = resp.body() == null ? "" : resp.body().string();
+                locatorHeader = resp.header("Sforce-Locator");
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } finally {
+                resp.close();
+            }
+            List<JsonObject> page = parseCsvToJson(body);
+            receivedRows += page.size();
+            nextLocator = locatorHeader;
+            if (nextLocator == null || nextLocator.isEmpty() || "null".equals(nextLocator)) {
+                exhausted = true;
+                if (expectedRows != null && receivedRows != expectedRows) {
+                    throw new IllegalStateException(
+                            "Bulk query result row count mismatch: expected " + expectedRows
+                                    + " but received " + receivedRows + " (job " + jobId + ")");
+                }
+                fullyConsumed = true;
+            }
+            return page;
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (deleteOnComplete && fullyConsumed) {
+                deleteBulkQueryJob(jobId, timeOutConfig);
+            }
+            // 提前 break / 未完整消费 / 异常：不删 job
+        }
+    }
+
+    /**
+     * Create a lazy page iterator for a Bulk API 2.0 query job.
+     */
+    public QueryResultIterator queryResultIterator(String jobId, Integer maxRecords, Long pollIntervalMs,
+            Long timeoutMs, TimeoutSettings timeOutConfig, boolean deleteOnComplete) {
+        return new QueryResultIterator(jobId, maxRecords, pollIntervalMs, timeoutMs, timeOutConfig, deleteOnComplete);
+    }
+
+    /**
+     * Convenience overload: default polling, no auto-delete.
+     */
+    public QueryResultIterator queryResultIterator(String jobId, Integer maxRecords, TimeoutSettings timeOutConfig) {
+        return queryResultIterator(jobId, maxRecords, null, null, timeOutConfig, false);
+    }
+
+    private static List<JsonObject> parseCsvToJson(String csv) {
+        List<JsonObject> records = new ArrayList<>();
+        if (csv == null || csv.isBlank()) {
+            return records;
+        }
+        // Salesforce 结果可能含 NUL 字节（\u0000，长文本字段实测坑，见 airbyte#8300），
+        // 会破坏 CSV 解析，解析前统一剥除
+        if (csv.indexOf('\u0000') >= 0) {
+            csv = csv.replace("\u0000", "");
+        }
+        try (Reader reader = new StringReader(csv);
+             CSVParser parser = CSVFormat.DEFAULT.builder()
+                     .setHeader()
+                     .setSkipHeaderRecord(true)
+                     .build()
+                     .parse(reader)) {
+            for (CSVRecord row : parser) {
+                JsonObject obj = new JsonObject();
+                row.toMap().forEach(obj::addProperty);
+                records.add(obj);
+            }
+            return records;
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to parse bulk query CSV results", e);
+        }
+    }
+
 
     public enum ColumnDelimiter {
         BACKQUOTE, CARET, COMMA, PIPE, SEMICOLON, TAB
@@ -370,6 +617,7 @@ public class BulkApi extends BaseApi {
     public enum JobState {
         @SerializedName("Open") OPEN,
         @SerializedName("UploadComplete") UPLOAD_COMPLETE,
+        @SerializedName("InProgress") IN_PROGRESS,
         @SerializedName("Aborted") ABORTED,
         @SerializedName("JobComplete") JOB_COMPLETE,
         @SerializedName("Failed") FAILED

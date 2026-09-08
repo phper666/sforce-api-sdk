@@ -51,6 +51,7 @@
         <logback.version>1.5.12</logback.version>
         <lombok.version>1.18.46</lombok.version>
         <httpclient.version>4.5.14</httpclient.version>
+        <commons-csv.version>1.12.0</commons-csv.version>
         <byte-buddy.version>1.15.4</byte-buddy.version>
         <bytebuddy.agent.path>${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy.version}/byte-buddy-agent-${byte-buddy.version}.jar</bytebuddy.agent.path>
 
@@ -82,11 +83,16 @@
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.apache.httpcomponents</groupId>
-                <artifactId>httpclient</artifactId>
-                <version>${httpclient.version}</version>
-            </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>${httpclient.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>${commons-csv.version}</version>
+        </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
