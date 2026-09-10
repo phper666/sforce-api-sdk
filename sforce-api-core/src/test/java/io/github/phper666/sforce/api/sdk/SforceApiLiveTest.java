@@ -11,6 +11,7 @@ import io.github.phper666.sforce.api.sdk.model.CompositeResponse;
 import io.github.phper666.sforce.api.sdk.model.ListInvocableActionResult;
 import io.github.phper666.sforce.api.sdk.model.ObjectDescribeResponse;
 import io.github.phper666.sforce.api.sdk.model.PageQueryResponse;
+import io.github.phper666.sforce.api.sdk.model.QueryJobResult;
 import io.github.phper666.sforce.api.sdk.model.SObjectMetadata;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assumptions;
@@ -551,21 +552,27 @@ public class SforceApiLiveTest {
     void bulkRunQueryJobsLive() throws Exception {
         String objectName = pickQueryableObject();
         File dstDir = Files.createTempDirectory("bulk-run-jobs").toFile();
-        // 注意：runQueryJobs 返回 Map 以查询字符串为 key — 两条查询必须不同（相同字符串会覆盖只剩一条）。
-        // 这是有意记录的 SDK 行为：相同 SOQL 无法通过 key 区分。
+        // 两条完全相同的 SOQL：修复后各产出独立结果（各带自己的 job id 与文件）
         List<String> queries = List.of(
                 "SELECT Id FROM " + objectName + " LIMIT 100",
-                "SELECT Id FROM " + objectName + " LIMIT 99");
+                "SELECT Id FROM " + objectName + " LIMIT 100");
 
-        Map<String, File> results = api.bulk().runQueryJobs(queries, objectName, dstDir, 2, 1000, null);
+        List<QueryJobResult> results = api.bulk().runQueryJobs(queries, objectName, dstDir, 2, 1000, null);
 
-        assertEquals(2, results.size(), "one result file per query");
-        results.forEach((query, file) -> {
-            assertTrue(file.exists() && file.length() > 0, "result file must be non-empty for: " + query);
-            System.out.println("✅ runQueryJobs file=" + file.getName() + " bytes=" + file.length());
-        });
-        // runQueryJobs 不删 job — 清理本次产生的 job 文件不需要 id（job 由 org 端 7 天后过期），
-        // 但我们不持有 id → 保持行为原样，仅验证下载结果
+        assertEquals(2, results.size(), "one result entry per query (duplicates preserved)");
+        assertEquals(queries.get(0), results.get(0).query());
+        assertEquals(queries.get(1), results.get(1).query());
+        assertNotEquals(results.get(0).jobId(), results.get(1).jobId(), "each duplicate gets its own job");
+        for (QueryJobResult r : results) {
+            assertTrue(r.resultFile().exists() && r.resultFile().length() > 0,
+                    "result file must be non-empty for: " + r.query());
+            System.out.println("✅ runQueryJobs file=" + r.resultFile().getName()
+                    + " bytes=" + r.resultFile().length() + " jobId=" + r.jobId());
+        }
+        // 现在能拿到 jobId → 显式清理本次产生的 job
+        for (QueryJobResult r : results) {
+            api.bulk().deleteBulkQueryJob(r.jobId(), null);
+        }
     }
 
     @Test

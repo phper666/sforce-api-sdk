@@ -6,6 +6,7 @@ import io.github.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+import io.github.phper666.sforce.api.sdk.model.QueryJobResult;
 import io.github.phper666.sforce.api.sdk.serialize.GsonJsonSerializer;
 import com.google.gson.JsonObject;
 import okhttp3.*;
@@ -319,15 +320,48 @@ class BulkApiTest {
         File dstDir = Files.createTempDirectory("bulk-query-jobs").toFile();
         List<String> queries = List.of("SELECT Id FROM Account", "SELECT Name FROM Contact");
 
-        Map<String, File> results = api.bulk().runQueryJobs(queries, "Account", dstDir, 2, null, null);
+        List<QueryJobResult> results = api.bulk().runQueryJobs(queries, "Account", dstDir, 2, null, null);
 
         assertEquals(2, results.size());
-        assertEquals("Id,Name\nAlice\n", Files.readString(results.get(queries.get(0)).toPath()));
-        assertEquals("Id,Name\nBob\n", Files.readString(results.get(queries.get(1)).toPath()));
-        for (File f : results.values()) {
-            assertTrue(f.exists());
-            assertTrue(f.length() > 0);
+        assertEquals(queries.get(0), results.get(0).query());
+        assertEquals(queries.get(1), results.get(1).query());
+        assertEquals("Id,Name\nAlice\n", Files.readString(results.get(0).resultFile().toPath()));
+        assertEquals("Id,Name\nBob\n", Files.readString(results.get(1).resultFile().toPath()));
+        for (QueryJobResult r : results) {
+            assertNotNull(r.jobId());
+            assertTrue(r.resultFile().exists());
+            assertTrue(r.resultFile().length() > 0);
         }
+    }
+
+    @Test
+    void runQueryJobsPreservesDuplicateQueries() throws Exception {
+        // 回归：两条完全相同的 SOQL 必须产出 2 条独立结果（旧实现 Map<query,File> 会互相覆盖）
+        AtomicInteger jobCounter = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (request.method().equals("POST") && path.endsWith("/jobs/query")) {
+                String id = "751xx00000000" + jobCounter.incrementAndGet();
+                return buildResponse(request, 200, "{\"id\":\"" + id + "\",\"state\":\"UploadComplete\"}");
+            }
+            if (path.endsWith("/results")) {
+                return buildResponse(request, 200, "Id,Name\nDup\n", "Sforce-Locator", "null");
+            }
+            return buildResponse(request, 200, "{\"id\":\"751xx000000009\",\"state\":\"JobComplete\"}");
+        });
+
+        File dstDir = Files.createTempDirectory("bulk-dup-queries").toFile();
+        String q = "SELECT Id FROM Contact LIMIT 1";
+
+        List<QueryJobResult> results = api.bulk().runQueryJobs(List.of(q, q), "Contact", dstDir, 2, null, null);
+
+        assertEquals(2, results.size(), "duplicate queries must yield one entry each");
+        assertEquals(q, results.get(0).query());
+        assertEquals(q, results.get(1).query());
+        assertNotEquals(results.get(0).jobId(), results.get(1).jobId(), "each duplicate gets its own job");
+        assertEquals("Id,Name\nDup\n", Files.readString(results.get(0).resultFile().toPath()));
+        assertEquals("Id,Name\nDup\n", Files.readString(results.get(1).resultFile().toPath()));
     }
 
     @Test

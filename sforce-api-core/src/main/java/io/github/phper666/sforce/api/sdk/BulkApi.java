@@ -15,6 +15,7 @@ import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiResultPagesResponse;
+import io.github.phper666.sforce.api.sdk.model.QueryJobResult;
 import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +48,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -497,11 +497,10 @@ public class BulkApi extends BaseApi {
      * Jobs are created serially (to avoid token-refresh races on the shared
      * session); waiting for completion and downloading run on a fixed thread
      * pool. Result files are named {@code query-<n>.csv} inside {@code dstDir}
-     * (created if missing), mapped back by query string.
+     * (created if missing).
      * <p>
-     * Note: results are keyed by the query string, so passing the exact same
-     * SOQL text twice collapses to a single map entry (the last download wins).
-     * Deduplicate your query list if you need one file per job.
+     * One result entry is returned per input query, in input order — duplicate
+     * queries produce distinct entries, each with its own job id and file.
      *
      * @param queries       list of SOQL queries
      * @param objectType    object type for each job (all same)
@@ -509,9 +508,9 @@ public class BulkApi extends BaseApi {
      * @param concurrency   max parallel jobs (null = default 4)
      * @param maxRecords    max records per result page (null = server default)
      * @param timeOutConfig per-request timeout settings
-     * @return Map&lt;String, File&gt; query → downloaded result file
+     * @return per-query results (query, job id, file), in input order
      */
-    public Map<String, File> runQueryJobs(List<String> queries, String objectType, File dstDir, Integer concurrency, Integer maxRecords, TimeoutSettings timeOutConfig) {
+    public List<QueryJobResult> runQueryJobs(List<String> queries, String objectType, File dstDir, Integer concurrency, Integer maxRecords, TimeoutSettings timeOutConfig) {
         if (dstDir != null && !dstDir.exists()) {
             dstDir.mkdirs();
         }
@@ -524,7 +523,7 @@ public class BulkApi extends BaseApi {
                     .setQuery(query);
             jobIds.add(createBulkQueryJob(req, timeOutConfig).getId());
         }
-        Map<String, File> results = new ConcurrentHashMap<>();
+        QueryJobResult[] results = new QueryJobResult[queries.size()];
         List<Future<?>> futures = new ArrayList<>();
         for (int i = 0; i < queries.size(); i++) {
             String query = queries.get(i);
@@ -534,7 +533,7 @@ public class BulkApi extends BaseApi {
                 waitForJobComplete(jobId, null, null, timeOutConfig);
                 File dstFile = new File(dstDir, "query-" + (idx + 1) + ".csv");
                 downloadBulkQueryJobResult(jobId, dstFile, maxRecords, timeOutConfig);
-                results.put(query, dstFile);
+                results[idx] = new QueryJobResult(query, jobId, dstFile);
             }));
         }
         executor.shutdown();
@@ -549,7 +548,7 @@ public class BulkApi extends BaseApi {
         } catch (ExecutionException e) {
             throw new RuntimeException(e.getCause());
         }
-        return results;
+        return List.of(results);
     }
 
     /**
