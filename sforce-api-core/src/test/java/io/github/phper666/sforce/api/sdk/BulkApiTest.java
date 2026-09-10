@@ -575,4 +575,215 @@ class BulkApiTest {
             });
         }
     }
+
+    // ── resultPages 并行下载（API v58.0+）──
+
+    private static final String RP_JOB = "751xx000000020";
+
+    private static String resultUrl(String locator) {
+        return "/services/data/v62.0/jobs/query/" + RP_JOB + "/results?locator=" + locator;
+    }
+
+    private static String resultPagesUrl(String locator) {
+        return "/services/data/v62.0/jobs/query/" + RP_JOB + "/resultPages?locator=" + locator;
+    }
+
+    /** 按 locator 返回不同的 CSV 段 */
+    private static Response segmentResponse(Request request, String locator) {
+        return switch (locator) {
+            case "AAA" -> buildResponse(request, 200, "Id,Name\n001,Alice\n");
+            case "BBB" -> buildResponse(request, 200, "Id,Name\n002,Bob\n");
+            case "CCC" -> buildResponse(request, 200, "Id,Name\n003,Carol\n");
+            default -> buildResponse(request, 200, "Id,Name\nunknown\n");
+        };
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelMultiRound() throws Exception {
+        AtomicInteger rpCalls = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/resultPages")) {
+                int n = rpCalls.incrementAndGet();
+                if (n == 1) {
+                    // 第 1 轮：2 个 resultUrl + done:false + nextRecordsUrl
+                    return buildResponse(request, 200,
+                            "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"},"
+                                    + "{\"resultUrl\":\"" + resultUrl("BBB") + "\"}],"
+                                    + "\"nextRecordsUrl\":\"" + resultPagesUrl("CCC") + "\",\"done\":false}");
+                }
+                // 第 2 轮：1 个 resultUrl + done:true
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("CCC") + "\"}],\"done\":true}");
+            }
+            return segmentResponse(request, request.url().queryParameter("locator"));
+        });
+
+        File dstDir = Files.createTempDirectory("bulk-rp").toFile();
+        File dst = new File(dstDir, "nested/out.csv"); // 父目录不存在 → 应自动创建
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 2, null);
+
+        assertEquals(2, rpCalls.get(), "resultPages must be paged over two rounds");
+        assertEquals("Id,Name\n001,Alice\n002,Bob\n003,Carol\n", Files.readString(dst.toPath()));
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelNextRecordUrlCompat() throws Exception {
+        AtomicInteger rpCalls = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/resultPages")) {
+                int n = rpCalls.incrementAndGet();
+                if (n == 1) {
+                    // 官方表格字段名 nextRecordUrl（单数）也要能翻页
+                    return buildResponse(request, 200,
+                            "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"}],"
+                                    + "\"nextRecordUrl\":\"" + resultPagesUrl("BBB") + "\",\"done\":false}");
+                }
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("BBB") + "\"}],\"done\":true}");
+            }
+            return segmentResponse(request, request.url().queryParameter("locator"));
+        });
+
+        File dst = File.createTempFile("bulk-rp-compat", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 2, null);
+
+        assertEquals(2, rpCalls.get(), "must continue paging via nextRecordUrl");
+        assertEquals("Id,Name\n001,Alice\n002,Bob\n", Files.readString(dst.toPath()));
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelDedupsHeader() throws Exception {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().endsWith("/resultPages")) {
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"},"
+                                + "{\"resultUrl\":\"" + resultUrl("BBB") + "\"}],\"done\":true}");
+            }
+            return segmentResponse(request, request.url().queryParameter("locator"));
+        });
+
+        File dst = File.createTempFile("bulk-rp-header", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 2, null);
+
+        String content = Files.readString(dst.toPath());
+        assertEquals(1, content.split("Id,Name", -1).length - 1, "file must contain exactly one header row");
+        assertEquals("Id,Name\n001,Alice\n002,Bob\n", content);
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelKeepsOrderDespiteOutOfOrderCompletion() throws Exception {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().endsWith("/resultPages")) {
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"},"
+                                + "{\"resultUrl\":\"" + resultUrl("BBB") + "\"}],\"done\":true}");
+            }
+            String locator = request.url().queryParameter("locator");
+            if ("AAA".equals(locator)) {
+                try {
+                    Thread.sleep(200); // 第一段最慢完成 → 检验写文件仍按 resultPages 顺序
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return segmentResponse(request, locator);
+        });
+
+        File dst = File.createTempFile("bulk-rp-order", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 2, null);
+
+        assertEquals("Id,Name\n001,Alice\n002,Bob\n", Files.readString(dst.toPath()));
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelEmptyResult() throws Exception {
+        SforceApi api = apiWith(chain ->
+                buildResponse(chain.request(), 200, "{\"resultPages\":[],\"done\":true}"));
+
+        File dst = File.createTempFile("bulk-rp-empty", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, null, null);
+
+        assertTrue(dst.exists());
+        assertEquals(0, dst.length(), "empty resultPages must produce an empty file, no error");
+    }
+
+    @Test
+    void downloadBulkQueryJobResultParallelRetriesFailedSegment() throws Exception {
+        AtomicInteger aaaCount = new AtomicInteger();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().endsWith("/resultPages")) {
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"}],\"done\":true}");
+            }
+            if ("AAA".equals(request.url().queryParameter("locator"))) {
+                if (aaaCount.incrementAndGet() == 1) {
+                    return buildResponse(request, 500, "server error");
+                }
+                return buildResponse(request, 200, "Id,Name\n001,Alice\n");
+            }
+            return buildResponse(request, 200, "");
+        });
+
+        File dst = File.createTempFile("bulk-rp-retry", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 1, null);
+
+        assertEquals(2, aaaCount.get(), "failed segment must be retried once and then succeed");
+        assertEquals("Id,Name\n001,Alice\n", Files.readString(dst.toPath()));
+    }
+
+    @Test
+    void forEachResultRowStreamsRowsInOrder() throws Exception {
+        AtomicInteger deleteCount = new AtomicInteger();
+        SforceApi api = apiWithBulkQueryMock(deleteCount);
+        List<JsonObject> rows = new ArrayList<>();
+
+        api.bulk().forEachResultRow("751xx000000010", null, rows::add, null);
+
+        assertEquals(3, rows.size());
+        assertEquals("001", rows.get(0).get("Id").getAsString());
+        assertEquals("Alice", rows.get(0).get("Name").getAsString());
+        assertEquals("002", rows.get(1).get("Id").getAsString());
+        assertEquals("003", rows.get(2).get("Id").getAsString());
+    }
+
+    @Test
+    void forEachResultPageParallelDeliversPagesInOrder() throws Exception {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().endsWith("/resultPages")) {
+                return buildResponse(request, 200,
+                        "{\"resultPages\":[{\"resultUrl\":\"" + resultUrl("AAA") + "\"},"
+                                + "{\"resultUrl\":\"" + resultUrl("BBB") + "\"}],\"done\":true}");
+            }
+            return segmentResponse(request, request.url().queryParameter("locator"));
+        });
+        List<List<JsonObject>> pages = new ArrayList<>();
+
+        api.bulk().forEachResultPageParallel(RP_JOB, 2, pages::add, null);
+
+        assertEquals(2, pages.size());
+        assertEquals(1, pages.get(0).size());
+        assertEquals("001", pages.get(0).get(0).get("Id").getAsString());
+        assertEquals("Alice", pages.get(0).get(0).get("Name").getAsString());
+        assertEquals(1, pages.get(1).size());
+        assertEquals("002", pages.get(1).get(0).get("Id").getAsString());
+    }
 }
