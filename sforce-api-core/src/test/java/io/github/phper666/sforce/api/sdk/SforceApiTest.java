@@ -622,4 +622,91 @@ class SforceApiTest {
         assertEquals(1, tokenCalls.get(), "valid token should NOT be refreshed");
         assertEquals("Bearer token-1", lastAuthHeader.get());
     }
+
+    // ── datahub-app 调用模式覆盖 ──
+
+    @Test
+    void listObjectsParsesSObjectMetadata() {
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            assertTrue(request.url().encodedPath().endsWith("/sobjects"),
+                    "listObjects must GET the sobjects global describe endpoint");
+            return buildResponse(request, 200,
+                    "{\"encoding\":\"UTF-8\",\"maxBatchSize\":2000,\"sobjects\":["
+                            + "{\"name\":\"Contact\",\"label\":\"Contact\",\"labelPlural\":\"Contacts\",\"custom\":false,"
+                            + "\"queryable\":true,\"createable\":true,\"updateable\":true,\"deletable\":true,\"keyPrefix\":\"003\"},"
+                            + "{\"name\":\"MyObj__c\",\"label\":\"My Custom\",\"labelPlural\":\"My Customs\",\"custom\":true,"
+                            + "\"queryable\":true,\"createable\":true,\"updateable\":true,\"deletable\":true,\"keyPrefix\":\"a01\"}"
+                            + "]}");
+        });
+
+        List<SObjectMetadata> objects = api.sobject().listObjects();
+
+        assertEquals(2, objects.size());
+        SObjectMetadata standard = objects.get(0);
+        assertEquals("Contact", standard.getName());
+        assertEquals("Contact", standard.getLabel());
+        assertEquals("Contacts", standard.getLabelPlural());
+        assertEquals("003", standard.getKeyPrefix());
+        assertFalse(standard.isCustom(), "standard object must have custom=false");
+        assertTrue(standard.isQueryable());
+
+        SObjectMetadata custom = objects.get(1);
+        assertEquals("MyObj__c", custom.getName());
+        assertEquals("My Custom", custom.getLabel());
+        assertEquals("a01", custom.getKeyPrefix());
+        assertTrue(custom.isCustom(), "custom object must have custom=true");
+        assertTrue(custom.isQueryable());
+    }
+
+    @Test
+    void soqlQueryAllPagesThroughCustomOkHttpClient() {
+        AtomicInteger customClientCalls = new AtomicInteger();
+        AtomicReference<String> nextPageUrl = new AtomicReference<>();
+
+        Interceptor mock = chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (path.endsWith("/query")) {
+                // 第 1 页：2 条记录 + nextRecordsUrl（相对路径）
+                nextPageUrl.set(request.url().encodedPath());
+                return buildResponse(request, 200,
+                        "{\"totalSize\":4,\"done\":false,"
+                                + "\"nextRecordsUrl\":\"/services/data/v62.0/query/next-page-01\","
+                                + "\"records\":[{\"Id\":\"001\"},{\"Id\":\"002\"}]}");
+            }
+            // 第 2 页（buildSoqlNextRequestUrl 会拼 session.apiEndpoint() + 相对路径）
+            assertEquals("/services/data/v62.0/query/next-page-01", path,
+                    "second page must follow nextRecordsUrl from page 1");
+            return buildResponse(request, 200,
+                    "{\"totalSize\":4,\"done\":true,"
+                            + "\"records\":[{\"Id\":\"003\"},{\"Id\":\"004\"}]}");
+        };
+
+        // datahub 模式：自定义 hardened client（计数 + 加标记 header）注入 SDK
+        OkHttpClient customClient = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    customClientCalls.incrementAndGet();
+                    return chain.proceed(chain.request().newBuilder()
+                            .header("X-Custom-Client", "datahub").build());
+                })
+                .addInterceptor(mock)
+                .build();
+
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.ACCESS_TOKEN)
+                .setAccessToken(ACCESS_TOKEN)
+                .setLoginEndpoint(DOMAIN)
+                .setOkHttpClient(customClient);
+        SforceApi api = new SforceApi(config);
+
+        PageQueryResponse<Map> all = api.query().soqlQueryAll("SELECT Id FROM Contact", Map.class);
+
+        assertEquals(4, all.getRecords().size(), "soqlQueryAll must aggregate all pages");
+        assertTrue(all.getDone(), "aggregated result must be done");
+        assertEquals(4, all.getTotalSize());
+        assertEquals(2, customClientCalls.get(),
+                "custom OkHttpClient must be used for BOTH the initial query and the follow-up page request");
+        assertEquals("/services/data/v62.0/query", nextPageUrl.get());
+    }
 }

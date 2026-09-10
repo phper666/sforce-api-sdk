@@ -14,6 +14,7 @@ import io.github.phper666.sforce.api.sdk.model.PageQueryResponse;
 import io.github.phper666.sforce.api.sdk.model.QueryJobResult;
 import io.github.phper666.sforce.api.sdk.model.SObjectMetadata;
 import com.google.gson.JsonObject;
+import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
@@ -615,5 +616,40 @@ public class SforceApiLiveTest {
         ApiException e = assertThrows(ApiException.class, () -> api.query().soqlQuery(
                 "SELECT BadField__c FROM NoSuchObject", Map.class));
         System.out.println("✅ Invalid SOQL → ApiException code=" + e.getCode() + " " + e.getMessage());
+    }
+
+    // ── datahub-app 认证模式：ACCESS_TOKEN flow + 自定义 OkHttpClient ──
+
+    @Test
+    void accessTokenFlowWithCustomClientLive() {
+        // datahub 模式：自己换 token → ACCESS_TOKEN flow + 自定义 hardened client 注入
+        String token = api.getAccessToken();
+        String endpoint = api.getApiEndpoint();
+
+        AtomicInteger customClientCalls = new AtomicInteger();
+        OkHttpClient customClient = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    customClientCalls.incrementAndGet();
+                    return chain.proceed(chain.request().newBuilder()
+                            .header("X-Custom-Client", "datahub-live-test").build());
+                })
+                .build();
+
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.ACCESS_TOKEN)
+                .setAccessToken(token)
+                .setLoginEndpoint(endpoint)
+                .setOkHttpClient(customClient);
+        SforceApi tokenApi = new SforceApi(config);
+
+        String objectName = pickQueryableObject();
+        var result = tokenApi.query().soqlQuery("SELECT Id FROM " + objectName + " LIMIT 1", Map.class);
+
+        assertTrue(result.getTotalSize() >= 0, "ACCESS_TOKEN flow query must succeed");
+        assertEquals(token, tokenApi.getAccessToken(), "ACCESS_TOKEN flow must reuse the injected token");
+        assertTrue(customClientCalls.get() > 0, "custom OkHttpClient must be used for the request");
+        System.out.println("✅ ACCESS_TOKEN flow + custom client: object=" + objectName
+                + " totalSize=" + result.getTotalSize()
+                + " customClientCalls=" + customClientCalls.get());
     }
 }
