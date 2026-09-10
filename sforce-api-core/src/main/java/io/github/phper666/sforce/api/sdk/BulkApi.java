@@ -14,6 +14,7 @@ import io.github.phper666.sforce.api.sdk.model.BulkApiCreateJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiJobDetailResponse;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+import io.github.phper666.sforce.api.sdk.model.BulkApiResultPagesResponse;
 import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -243,6 +244,224 @@ public class BulkApi extends BaseApi {
             url += sep + "maxRecords=" + maxRecords;
         }
         return url;
+    }
+
+    // ──────────────────────────────────────────────
+    // Bulk API 2.0 Query — resultPages 并行下载（API v58.0+）
+    // ──────────────────────────────────────────────
+
+    /** 官方每轮最多返回 5 个 resultUrl */
+    private static final int DEFAULT_RESULT_PAGES_CONCURRENCY = 5;
+    /** 单段下载失败重试次数（尝试 3 次）；locator 幂等所以重试安全 */
+    private static final int SEGMENT_DOWNLOAD_ATTEMPTS = 3;
+    /** 防死循环：done 一直 false 且 nextUrl 不前进时的最大轮数 */
+    private static final int MAX_RESULT_PAGES_ROUNDS = 10000;
+
+    private String toAbsolute(String url) {
+        if (url == null || url.isEmpty() || url.startsWith("http")) {
+            return url;
+        }
+        return session.apiEndpoint() + url;
+    }
+
+    /**
+     * 循环 GET /resultPages 收集所有 resultUrl（已拼成绝对 URL）。
+     * <p>
+     * 官方字段名不一致（表格 nextRecordUrl / 示例 nextRecordsUrl），两个都解析取非空的。
+     */
+    private List<String> collectResultUrls(String jobId, TimeoutSettings timeOutConfig) {
+        List<String> urls = new ArrayList<>();
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
+        String nextUrl = bulkQueryApiUriBase() + "/" + jobId + "/resultPages";
+        for (int round = 0; round < MAX_RESULT_PAGES_ROUNDS; round++) {
+            String body;
+            try {
+                body = executeGetBody(nextUrl, HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            BulkApiResultPagesResponse resp = (BulkApiResultPagesResponse) jsonSerializer.fromJson(body, BulkApiResultPagesResponse.class);
+            if (resp.getResultPages() != null) {
+                for (BulkApiResultPagesResponse.ResultPage page : resp.getResultPages()) {
+                    if (page.getResultUrl() != null && !page.getResultUrl().isEmpty()) {
+                        urls.add(toAbsolute(page.getResultUrl()));
+                    }
+                }
+            }
+            if (Boolean.TRUE.equals(resp.getDone())) {
+                break;
+            }
+            String next = resp.getNextRecordsUrl();
+            if (next == null || next.isEmpty()) {
+                next = resp.getNextRecordUrl();
+            }
+            if (next == null || next.isEmpty()) {
+                break;
+            }
+            nextUrl = toAbsolute(next);
+        }
+        return urls;
+    }
+
+    /**
+     * Download one result segment (CSV) with retry. Locator is idempotent so
+     * retrying a failed segment download is safe.
+     */
+    private String downloadResultSegment(String url, TimeoutSettings timeOutConfig) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.ACCEPT, TEXT_CSV_MEDIA.type());
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < SEGMENT_DOWNLOAD_ATTEMPTS; attempt++) {
+            try {
+                Response resp = execute(url, HttpMethod.GET.name(), EMPTY_BODY, headers, timeOutConfig);
+                try {
+                    return resp.body() == null ? "" : resp.body().string();
+                } finally {
+                    resp.close();
+                }
+            } catch (IOException e) {
+                last = new RuntimeException(e);
+            } catch (RuntimeException e) {
+                last = e;
+            }
+        }
+        throw last;
+    }
+
+    /** 首行（去 \r），无换行时返回整段 */
+    private static String firstLine(String segment) {
+        int nl = segment.indexOf('\n');
+        String line = nl < 0 ? segment : segment.substring(0, nl);
+        return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
+    }
+
+    /** 后续段去重表头：首行与第一段表头相同则跳过，否则保留（容错：不假设每段都带表头） */
+    private static String stripDuplicateHeader(String segment, String headerLine) {
+        int nl = segment.indexOf('\n');
+        if (nl < 0) {
+            return segment.equals(headerLine) ? "" : segment;
+        }
+        String first = segment.substring(0, nl);
+        if (first.endsWith("\r")) {
+            first = first.substring(0, first.length() - 1);
+        }
+        return first.equals(headerLine) ? segment.substring(nl + 1) : segment;
+    }
+
+    private static int resolveConcurrency(Integer concurrency) {
+        return concurrency != null && concurrency > 0 ? concurrency : DEFAULT_RESULT_PAGES_CONCURRENCY;
+    }
+
+    /**
+     * Download query job results using the parallel resultPages API (v58.0+).
+     * <p>
+     * Downloads up to {@code concurrency} result sets concurrently (sliding
+     * window — at most {@code concurrency} segments are in flight/in memory at
+     * any time), writing pages to {@code dstFile} in order: the first segment
+     * keeps its CSV header, later segments skip a duplicate header row (a
+     * segment without a header is kept verbatim).
+     *
+     * @param jobId        completed query job id
+     * @param dstFile      destination file (parent dirs created if missing)
+     * @param concurrency  max parallel segment downloads (null = default 5)
+     * @param timeOutConfig per-request timeout settings
+     */
+    public void downloadBulkQueryJobResultParallel(String jobId, File dstFile, Integer concurrency, TimeoutSettings timeOutConfig) {
+        List<String> urls = collectResultUrls(jobId, timeOutConfig);
+        if (dstFile.getParentFile() != null) {
+            dstFile.getParentFile().mkdirs();
+        }
+        int poolSize = resolveConcurrency(concurrency);
+        ExecutorService executor = Executors.newFixedThreadPool(poolSize);
+        try {
+            // 滑动窗口：最多 poolSize 段同时在内存/网络中，按序写文件
+            List<Future<String>> window = new ArrayList<>();
+            int next = 0;
+            boolean firstSegment = true;
+            String headerLine = null;
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(dstFile))) {
+                while (next < urls.size() || !window.isEmpty()) {
+                    while (window.size() < poolSize && next < urls.size()) {
+                        String url = urls.get(next++);
+                        window.add(executor.submit(() -> downloadResultSegment(url, timeOutConfig)));
+                    }
+                    String segment = window.remove(0).get();
+                    if (firstSegment) {
+                        headerLine = firstLine(segment);
+                        writer.write(segment);
+                        firstSegment = false;
+                    } else {
+                        writer.write(stripDuplicateHeader(segment, headerLine));
+                    }
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while downloading bulk query results in parallel: " + jobId, e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * Same as {@link #downloadBulkQueryJobResultParallel} but delivers parsed
+     * pages to a consumer in order, instead of writing a file. Memory-bounded
+     * via sliding-window concurrency.
+     *
+     * @param jobId        completed query job id
+     * @param concurrency  max parallel segment downloads (null = default 5)
+     * @param consumer     page consumer (pages delivered in resultPages order)
+     * @param timeOutConfig per-request timeout settings
+     */
+    public void forEachResultPageParallel(String jobId, Integer concurrency,
+            Consumer<List<JsonObject>> consumer, TimeoutSettings timeOutConfig) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        List<String> urls = collectResultUrls(jobId, timeOutConfig);
+        int poolSize = resolveConcurrency(concurrency);
+        ExecutorService executor = Executors.newFixedThreadPool(poolSize);
+        try {
+            List<Future<List<JsonObject>>> window = new ArrayList<>();
+            int next = 0;
+            while (next < urls.size() || !window.isEmpty()) {
+                while (window.size() < poolSize && next < urls.size()) {
+                    String url = urls.get(next++);
+                    window.add(executor.submit(() -> parseCsvToJson(downloadResultSegment(url, timeOutConfig))));
+                }
+                consumer.accept(window.remove(0).get());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while consuming bulk query results in parallel: " + jobId, e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * Convenience: stream results row by row (page-level fetch internally).
+     * Simple wrapper over {@link #forEachResultPage(String, Integer, Consumer, TimeoutSettings)}
+     * — no file, no full materialization.
+     *
+     * @param jobId        completed query job id
+     * @param maxRecords   max records per page (null = server default)
+     * @param rowConsumer  invoked once per record
+     * @param timeOutConfig per-request timeout settings
+     */
+    public void forEachResultRow(String jobId, Integer maxRecords,
+            Consumer<JsonObject> rowConsumer, TimeoutSettings timeOutConfig) {
+        Objects.requireNonNull(rowConsumer, "rowConsumer must not be null");
+        forEachResultPage(jobId, maxRecords, page -> {
+            for (JsonObject row : page) {
+                rowConsumer.accept(row);
+            }
+        }, timeOutConfig);
     }
 
     /**
