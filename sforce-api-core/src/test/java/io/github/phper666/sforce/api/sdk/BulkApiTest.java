@@ -786,4 +786,30 @@ class BulkApiTest {
         assertEquals(1, pages.get(1).size());
         assertEquals("002", pages.get(1).get(0).get("Id").getAsString());
     }
+
+    @Test
+    void downloadBulkQueryJobResultParallelSupportsRealWorldChunksShape() throws Exception {
+        // 实测（v62）真实响应：resultChunks[] + resultLink（版本-less 相对路径），
+        // 与官方文档的 resultPages/resultUrl 字段名不同 —— 防止回归
+        AtomicReference<String> segmentPath = new AtomicReference<>();
+        SforceApi api = apiWith(chain -> {
+            Request request = chain.request();
+            if (request.url().encodedPath().endsWith("/resultPages")) {
+                return buildResponse(request, 200,
+                        "{\"done\":true,\"nextRecordsUrl\":null,\"resultChunks\":["
+                                + "{\"resultLink\":\"/jobs/query/" + RP_JOB + "/results?locator=AAA\"}]}");
+            }
+            segmentPath.set(request.url().encodedPath());
+            return segmentResponse(request, request.url().queryParameter("locator"));
+        });
+
+        File dst = File.createTempFile("bulk-rp-chunks", ".csv");
+        dst.deleteOnExit();
+
+        api.bulk().downloadBulkQueryJobResultParallel(RP_JOB, dst, 2, null);
+
+        assertEquals("/services/data/v62.0/jobs/query/" + RP_JOB + "/results", segmentPath.get(),
+                "version-less resultLink must be resolved against /services/data/{version}");
+        assertEquals("Id,Name\n001,Alice\n", Files.readString(dst.toPath()));
+    }
 }
