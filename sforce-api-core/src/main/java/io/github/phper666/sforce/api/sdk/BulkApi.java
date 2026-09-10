@@ -261,7 +261,11 @@ public class BulkApi extends BaseApi {
         if (url == null || url.isEmpty() || url.startsWith("http")) {
             return url;
         }
-        return session.apiEndpoint() + url;
+        if (url.startsWith("/services/data/")) {
+            return session.apiEndpoint() + url;
+        }
+        // 实测（v62）chunk 链接为版本-less 相对路径（/jobs/query/...），补 /services/data/{version}
+        return session.apiEndpoint() + "/services/data/" + config.getApiVersion() + url;
     }
 
     /**
@@ -281,25 +285,17 @@ public class BulkApi extends BaseApi {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-            BulkApiResultPagesResponse resp = (BulkApiResultPagesResponse) jsonSerializer.fromJson(body, BulkApiResultPagesResponse.class);
-            if (resp.getResultPages() != null) {
-                for (BulkApiResultPagesResponse.ResultPage page : resp.getResultPages()) {
-                    if (page.getResultUrl() != null && !page.getResultUrl().isEmpty()) {
-                        urls.add(toAbsolute(page.getResultUrl()));
-                    }
-                }
-            }
-            if (Boolean.TRUE.equals(resp.getDone())) {
-                break;
-            }
-            String next = resp.getNextRecordsUrl();
-            if (next == null || next.isEmpty()) {
-                next = resp.getNextRecordUrl();
-            }
-            if (next == null || next.isEmpty()) {
-                break;
-            }
-            nextUrl = toAbsolute(next);
+        BulkApiResultPagesResponse resp = (BulkApiResultPagesResponse) jsonSerializer.fromJson(body, BulkApiResultPagesResponse.class);
+        // 兼容两种响应形态：官方文档（resultPages/resultUrl）与实测 v62（resultChunks/resultLink）
+        resp.allResultUrls().forEach(u -> urls.add(toAbsolute(u)));
+        if (Boolean.TRUE.equals(resp.getDone())) {
+            break;
+        }
+        String next = resp.nextPageUrl();
+        if (next == null || next.isEmpty()) {
+            break;
+        }
+        nextUrl = toAbsolute(next);
         }
         return urls;
     }
