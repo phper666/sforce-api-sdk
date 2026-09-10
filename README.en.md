@@ -508,13 +508,93 @@ api.bulk().downloadBulkApiJobResult(
     new File("unprocessed.csv"), new TimeoutSettings());
 ```
 
+### Bulk Query (Query Job)
+
+Asynchronous queries for large data sets (Salesforce recommends Bulk for more than 2,000 records).
+Flow: create job → wait for completion → read results.
+
+```java
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+
+// 1. Create a query job
+var queryRequest = new BulkApiQueryJobRequest()
+    .setObject("Account")
+    .setQuery("SELECT Id, Name FROM Account WHERE CreatedDate > 2024-01-01")
+    .setOperation(BulkApi.JobOperation.QUERY);  // default QUERY; QUERY_ALL also returns deleted/archived records
+
+BulkApiQueryJobResponse job = api.bulk().createBulkQueryJob(queryRequest, timeout);
+
+// 2. Wait for completion (configurable poll interval/timeout;
+//    throws IllegalStateException if the job fails or the wait times out)
+BulkApiQueryJobResponse done = api.bulk().waitForJobComplete(
+    job.getId(), 3000L, 30 * 60 * 1000L, timeout);
+System.out.println("rows=" + done.getNumberRecordsProcessed());
+```
+
+**Reading results (pick one per scenario)**
+
+| Style | Method | Notes |
+| --- | --- | --- |
+| Download CSV | `downloadBulkQueryJobResult(jobId, file, maxRecords, timeout)` | Pages via `Sforce-Locator`, streams to disk, constant memory |
+| Parallel download (v58.0+) | `downloadBulkQueryJobResultParallel(jobId, file, concurrency, timeout)` | Server-precomputed segments fetched concurrently (default 5); same request count |
+| Page callback (in-memory) | `forEachResultPage(jobId, maxRecords, page -> {...}, timeout)` | One `List<JsonObject>` per page, no file |
+| Row callback (in-memory) | `forEachResultRow(jobId, maxRecords, row -> {...}, timeout)` | Row by row, no file, constant memory |
+| Lazy iterator | `queryResultIterator(jobId, maxRecords, timeout)` | Fetches pages on demand, one page in memory; use try-with-resources |
+| Parallel page callback | `forEachResultPageParallel(jobId, concurrency, page -> {...}, timeout)` | Concurrent segments, ordered delivery, no file |
+
+```java
+// Row by row (no file — good for streaming into storage or aggregations)
+api.bulk().forEachResultRow(job.getId(), 10000, row -> {
+    String id = row.get("Id").getAsString();
+    // ... handle each row
+}, timeout);
+
+// Download to CSV (pages appended, duplicate header rows stripped)
+api.bulk().downloadBulkQueryJobResult(job.getId(), new File("accounts.csv"), 10000, timeout);
+
+// Parallel download (v58.0+)
+api.bulk().downloadBulkQueryJobResultParallel(
+    job.getId(), new File("accounts.csv"), 5, timeout);
+
+// Lazy iteration (one page in memory at a time)
+try (BulkApi.QueryResultIterator it =
+         api.bulk().queryResultIterator(job.getId(), 10000, timeout)) {
+    while (it.hasNext()) {
+        List<JsonObject> page = it.next();
+        // ... handle one page
+    }
+}
+```
+
+**Running multiple queries in parallel**
+
+```java
+// One result per query, in input order; duplicate queries stay independent
+List<QueryJobResult> results = api.bulk().runQueryJobs(
+    List.of("SELECT Id FROM Contact LIMIT 100",
+            "SELECT Id FROM Contact LIMIT 100"),
+    "Contact",
+    new File("/tmp/out"),
+    4,         // concurrency (null = 4)
+    10000,     // records per page (null = server default)
+    timeout);
+
+for (QueryJobResult r : results) {
+    System.out.println(r.query() + " → " + r.resultFile() + " (job " + r.jobId() + ")");
+    api.bulk().deleteBulkQueryJob(r.jobId(), timeout);  // explicit cleanup
+}
+```
+
+> Query job results are retained for 7 days; call `deleteBulkQueryJob(jobId, timeout)` when no longer needed.
+
 ### BulkApi Enums
 
-- `BulkApi.JobOperation` — `INSERT`, `DELETE`, `HARD_DELETE`, `UPDATE`, `UPSERT`
+- `BulkApi.JobOperation` — `INSERT`, `DELETE`, `HARD_DELETE`, `UPDATE`, `UPSERT`, `QUERY`, `QUERY_ALL`
 - `BulkApi.JobResultType` — `SUCCESSFUL_RESULT`, `FAILED_RESULT`, `UNPROCESSED_RESULT`
 - `BulkApi.ColumnDelimiter` — `BACKQUOTE`, `CARET`, `COMMA`, `PIPE`, `SEMICOLON`, `TAB`
 - `BulkApi.LineEnding` — `LF`, `CRLF`
-- `BulkApi.JobState` — `OPEN`, `UPDATE_COMPLETE`, `ABORTED`, `JOB_COMPLETE`, `FAILED`
+- `BulkApi.JobState` — `OPEN`, `UPLOAD_COMPLETE`, `IN_PROGRESS`, `ABORTED`, `JOB_COMPLETE`, `FAILED`
 
 ## FileApi
 
