@@ -507,15 +507,93 @@ api.bulk().downloadBulkApiJobResult(
     job.getId(), BulkApi.JobResultType.UNPROCESSED_RESULT, new File("unprocessed.csv"), timeout);
 ```
 
+### Bulk 查询（Query Job）
+
+异步查询大数据量（官方建议超过 2,000 条用 Bulk）。流程：创建 job → 等待完成 → 读取结果。
+
+```java
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
+import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+
+// 1. 创建查询 job
+var queryRequest = new BulkApiQueryJobRequest()
+    .setObject("Account")
+    .setQuery("SELECT Id, Name FROM Account WHERE CreatedDate > 2024-01-01")
+    .setOperation(BulkApi.JobOperation.QUERY);  // 默认 QUERY；QUERY_ALL 额外包含已删除/归档记录
+
+BulkApiQueryJobResponse job = api.bulk().createBulkQueryJob(queryRequest, timeout);
+
+// 2. 等待完成（可配轮询间隔与超时；job 失败或等待超时抛 IllegalStateException）
+BulkApiQueryJobResponse done = api.bulk().waitForJobComplete(
+    job.getId(), 3000L, 30 * 60 * 1000L, timeout);
+System.out.println("rows=" + done.getNumberRecordsProcessed());
+```
+
+**读取结果（按场景选一种）**
+
+| 方式 | 方法 | 特点 |
+| --- | --- | --- |
+| 下载 CSV 文件 | `downloadBulkQueryJobResult(jobId, file, maxRecords, timeout)` | 按 `Sforce-Locator` 分页、流式写盘，内存恒定 |
+| 并行下载（v58.0+） | `downloadBulkQueryJobResultParallel(jobId, file, concurrency, timeout)` | 服务端预分段 + 并发下载（默认并发 5），下载更快；请求数不变 |
+| 逐页回调（内存） | `forEachResultPage(jobId, maxRecords, page -> {...}, timeout)` | 每页一个 `List<JsonObject>`，不落盘 |
+| 逐行回调（内存） | `forEachResultRow(jobId, maxRecords, row -> {...}, timeout)` | 逐条处理，不落盘、内存恒定 |
+| 惰性迭代器 | `queryResultIterator(jobId, maxRecords, timeout)` | 按需拉页，一次只持有一页；配合 try-with-resources |
+| 并行逐页（内存） | `forEachResultPageParallel(jobId, concurrency, page -> {...}, timeout)` | 并发拉段、按序交付页，不落盘 |
+
+```java
+// 逐行处理（适合边读边入库/统计，不落盘）
+api.bulk().forEachResultRow(job.getId(), 10000, row -> {
+    String id = row.get("Id").getAsString();
+    // ... 处理每行
+}, timeout);
+
+// 下载到 CSV（多页自动拼接，重复表头自动去重）
+api.bulk().downloadBulkQueryJobResult(job.getId(), new File("accounts.csv"), 10000, timeout);
+
+// 并行下载（同一次 job 结果，多段并发拉取，v58.0+）
+api.bulk().downloadBulkQueryJobResultParallel(
+    job.getId(), new File("accounts.csv"), 5, timeout);
+
+// 惰性迭代（内存只保留一页）
+try (BulkApi.QueryResultIterator it =
+         api.bulk().queryResultIterator(job.getId(), 10000, timeout)) {
+    while (it.hasNext()) {
+        List<JsonObject> page = it.next();
+        // ... 处理一页
+    }
+}
+```
+
+**批量并行查询**
+
+```java
+// 一次跑多条查询，每条产出独立文件；返回按输入顺序排列的结果列表
+List<QueryJobResult> results = api.bulk().runQueryJobs(
+    List.of("SELECT Id FROM Contact LIMIT 100",
+            "SELECT Id FROM Contact LIMIT 100"),  // 重复查询各自独立
+    "Contact",
+    new File("/tmp/out"),
+    4,         // 并发数（null = 4）
+    10000,     // 每页记录数（null = 服务端默认）
+    timeout);
+
+for (QueryJobResult r : results) {
+    System.out.println(r.query() + " → " + r.resultFile() + " (job " + r.jobId() + ")");
+    api.bulk().deleteBulkQueryJob(r.jobId(), timeout);  // 可显式清理 job
+}
+```
+
+> 提示：查询 job 创建后结果保留 7 天；不再需要时用 `deleteBulkQueryJob(jobId, timeout)` 清理。
+
 ### 相关枚举
 
 | 枚举 | 说明 |
 | --- | --- |
-| `BulkApi.JobOperation` | `INSERT` / `DELETE` / `HARD_DELETE` / `UPDATE` / `UPSERT` |
+| `BulkApi.JobOperation` | `INSERT` / `DELETE` / `HARD_DELETE` / `UPDATE` / `UPSERT` / `QUERY` / `QUERY_ALL` |
 | `BulkApi.JobResultType` | `SUCCESSFUL_RESULT` / `FAILED_RESULT` / `UNPROCESSED_RESULT` |
 | `BulkApi.ColumnDelimiter` | `BACKQUOTE` / `CARET` / `COMMA` / `PIPE` / `SEMICOLON` / `TAB` |
 | `BulkApi.LineEnding` | `LF` / `CRLF` |
-| `BulkApi.JobState` | `OPEN` / `UPLOAD_COMPLETE` / `ABORTED` / `JOB_COMPLETE` / `FAILED` |
+| `BulkApi.JobState` | `OPEN` / `UPLOAD_COMPLETE` / `IN_PROGRESS` / `ABORTED` / `JOB_COMPLETE` / `FAILED` |
 
 ## FileApi
 
