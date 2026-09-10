@@ -498,6 +498,10 @@ public class BulkApi extends BaseApi {
      * session); waiting for completion and downloading run on a fixed thread
      * pool. Result files are named {@code query-<n>.csv} inside {@code dstDir}
      * (created if missing), mapped back by query string.
+     * <p>
+     * Note: results are keyed by the query string, so passing the exact same
+     * SOQL text twice collapses to a single map entry (the last download wins).
+     * Deduplicate your query list if you need one file per job.
      *
      * @param queries       list of SOQL queries
      * @param objectType    object type for each job (all same)

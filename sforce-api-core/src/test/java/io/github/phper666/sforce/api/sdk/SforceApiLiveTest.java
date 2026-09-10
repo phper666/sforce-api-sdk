@@ -5,6 +5,10 @@ import io.github.phper666.sforce.api.sdk.config.SdkConfig;
 import io.github.phper666.sforce.api.sdk.exception.ApiException;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobRequest;
 import io.github.phper666.sforce.api.sdk.model.BulkApiQueryJobResponse;
+import io.github.phper666.sforce.api.sdk.model.CompositeRequestBody;
+import io.github.phper666.sforce.api.sdk.model.CompositeRequest;
+import io.github.phper666.sforce.api.sdk.model.CompositeResponse;
+import io.github.phper666.sforce.api.sdk.model.ListInvocableActionResult;
 import io.github.phper666.sforce.api.sdk.model.ObjectDescribeResponse;
 import io.github.phper666.sforce.api.sdk.model.PageQueryResponse;
 import io.github.phper666.sforce.api.sdk.model.SObjectMetadata;
@@ -122,9 +126,52 @@ public class SforceApiLiveTest {
         assertNotNull(created.getId());
         System.out.println("✅ Created Contact: " + created.getId());
 
+        // Update it
+        String updatedName = "SDK Updated — " + System.currentTimeMillis();
+        api.sobject().update("Contact", created.getId(), Map.of("LastName", updatedName));
+
+        // Verify update landed
+        Map<String, Object> reloaded = api.sobject().getSObjectAsMap("Contact", created.getId());
+        assertEquals(updatedName, reloaded.get("LastName"), "update must be reflected on re-read");
+        System.out.println("✅ Updated + re-read Contact: " + created.getId() + " LastName=" + reloaded.get("LastName"));
+
         // Delete it
         api.sobject().delete("Contact", created.getId());
         System.out.println("✅ Deleted Contact: " + created.getId());
+    }
+
+    @Test
+    void batchCreateLive() {
+        String suffix = String.valueOf(System.currentTimeMillis());
+        List<io.github.phper666.sforce.api.sdk.model.CompositeBodyObject> bodies = new java.util.ArrayList<>();
+        for (int i = 1; i <= 2; i++) {
+            var b = new io.github.phper666.sforce.api.sdk.model.CompositeBodyObject();
+            b.setObjectType("Contact");
+            b.setBody(Map.of("LastName", "SDK Batch " + i + " — " + suffix));
+            bodies.add(b);
+        }
+        List<io.github.phper666.sforce.api.sdk.model.CreateObjectResponse> created;
+        try {
+            created = api.sobject().batchCreateSObjects(bodies);
+        } catch (ApiException e) {
+            Assumptions.abort("skipping batchCreate — org rejected write: " + e.getMessage());
+            return;
+        }
+        assertEquals(2, created.size());
+        // org 存储满时 composite batch 返回 HTTP 200 + 每项 success=false（环境限制非 SDK 缺陷 → abort）
+        List<String> failures = created.stream()
+                .filter(c -> !c.isSuccess())
+                .map(c -> String.valueOf(c.getErrors()))
+                .toList();
+        if (!failures.isEmpty()) {
+            Assumptions.abort("skipping batchCreate — batch item errors: " + failures);
+        }
+        List<String> ids = created.stream().map(io.github.phper666.sforce.api.sdk.model.CreateObjectResponse::getId).toList();
+        System.out.println("✅ batchCreateSObjects created: " + ids);
+
+        // cleanup
+        api.sobject().batchDeleteObjects(ids, true);
+        System.out.println("✅ Cleaned up batch records: " + ids);
     }
 
     @Test
@@ -293,5 +340,273 @@ public class SforceApiLiveTest {
 
         // cleanup
         api.bulk().deleteBulkQueryJob(job.getId(), null);
+    }
+
+    // ── QueryApi 扩展（真实 org）──
+
+    @Test
+    void soqlQueryCountLive() {
+        String objectName = pickQueryableObject();
+        int count = api.query().soqlQueryCount("SELECT COUNT() FROM " + objectName);
+        assertTrue(count >= 0, "COUNT() must return a non-negative total");
+        System.out.println("✅ soqlQueryCount " + objectName + " = " + count);
+    }
+
+    @Test
+    void soqlQueryAllAggregatesPages() {
+        String objectName = pickQueryableObject();
+        PageQueryResponse<Map> all = api.query().soqlQueryAll(
+                "SELECT Id FROM " + objectName + " LIMIT 5000", Map.class);
+        assertTrue(all.getDone(), "aggregated result must be marked done");
+        assertEquals(all.getRecords().size(), all.getTotalSize(),
+                "aggregated records size must equal totalSize");
+        System.out.println("✅ soqlQueryAll aggregated records=" + all.getTotalSize());
+    }
+
+    @Test
+    void soqlQueryNextManualPaging() {
+        String objectName = pickQueryableObject();
+        PageQueryResponse<Map> page1 = api.query().soqlQuery("SELECT Id FROM " + objectName, Map.class);
+        if (page1.getNextRecordsUrl() == null) {
+            System.out.println("⏭️ " + objectName + " fits in one page (" + page1.getTotalSize()
+                    + " rows) — no nextRecordsUrl to follow, skipping");
+            return;
+        }
+        PageQueryResponse<Map> page2 = api.query().soqlQueryNext(page1.getNextRecordsUrl(), Map.class);
+        assertFalse(page2.getRecords().isEmpty(), "second page must return records");
+        System.out.println("✅ soqlQueryNext page1=" + page1.getRecords().size()
+                + " page2=" + page2.getRecords().size() + " total=" + page2.getTotalSize());
+    }
+
+    @Test
+    void soslQueryLive() {
+        // 只验证链路 + 响应可解析（可能 0 结果）
+        var result = api.query().soslQuery("FIND {test} IN ALL FIELDS RETURNING Contact(Id)");
+        assertNotNull(result, "SOSL response must be parseable");
+        int hits = result.getSearchRecords() == null ? 0 : result.getSearchRecords().size();
+        System.out.println("✅ soslQuery searchRecords=" + hits);
+    }
+
+    @Test
+    void toolingApiQueryLive() {
+        try {
+            PageQueryResponse<Map> result = api.query().toolingApiSoqlQuery(
+                    "SELECT Id FROM ApexClass LIMIT 1", Map.class);
+            assertNotNull(result);
+            System.out.println("✅ toolingApiSoqlQuery totalSize=" + result.getTotalSize());
+        } catch (ApiException e) {
+            // tooling API 需要额外权限；部分 org/integration user 连 ApexClass 元数据都不可见
+            // （400 INVALID_TYPE），非 SDK 缺陷 → 换 tooling 内置对象再试，仍失败则跳过
+            if (e.getCode() == 401 || e.getCode() == 403) {
+                Assumptions.abort("skipping tooling API — no permission: " + e.getMessage());
+            }
+            if (e.getCode() == 400) {
+                try {
+                    PageQueryResponse<Map> fallback = api.query().toolingApiSoqlQuery(
+                            "SELECT DurableId FROM EntityDefinition LIMIT 1", Map.class);
+                    assertNotNull(fallback);
+                    System.out.println("✅ toolingApiSoqlQuery (EntityDefinition fallback) totalSize=" + fallback.getTotalSize());
+                    return;
+                } catch (ApiException e2) {
+                    Assumptions.abort("skipping tooling API — tooling objects not accessible in org: " + e2.getMessage());
+                }
+            }
+            throw e;
+        }
+    }
+
+    // ── SobjectApi 读路径 ──
+
+    @Test
+    void getSObjectByIdLive() {
+        String objectName = pickQueryableObject();
+        PageQueryResponse<Map> one = api.query().soqlQuery(
+                "SELECT Id FROM " + objectName + " LIMIT 1", Map.class);
+        Assumptions.assumeFalse(one.getRecords().isEmpty(), "no data rows to read");
+        String id = (String) one.getRecords().get(0).get("Id");
+
+        Map<String, Object> record = api.sobject().getSObjectAsMap(objectName, id);
+        assertEquals(id, record.get("Id"), "retrieved record Id must match the queried Id");
+        System.out.println("✅ getSObjectAsMap " + objectName + "/" + id + " fields=" + record.size());
+    }
+
+    @Test
+    void batchGetSObjectsLive() {
+        String objectName = pickQueryableObject();
+        PageQueryResponse<Map> two = api.query().soqlQuery(
+                "SELECT Id FROM " + objectName + " LIMIT 2", Map.class);
+        Assumptions.assumeFalse(two.getRecords().isEmpty(), "no data rows to read");
+        List<String> ids = two.getRecords().stream().map(r -> (String) r.get("Id")).toList();
+
+        List<Map> records = api.sobject().batchGetSObjects(objectName, ids, List.of("Id"), Map.class);
+        assertEquals(ids.size(), records.size(), "batchGet must return one record per id");
+        System.out.println("✅ batchGetSObjects ids=" + ids.size() + " returned=" + records.size());
+    }
+
+    // ── Composite API ──
+
+    @Test
+    void compositeReadRequestsLive() {
+        String objectName = pickQueryableObject();
+        PageQueryResponse<Map> one = api.query().soqlQuery(
+                "SELECT Id FROM " + objectName + " LIMIT 1", Map.class);
+        Assumptions.assumeFalse(one.getRecords().isEmpty(), "no data rows to read");
+        String id = (String) one.getRecords().get(0).get("Id");
+        String url = api.composite().getCompositeSObjectUrl(objectName) + "/" + id;
+
+        CompositeRequest r1 = new CompositeRequest();
+        r1.setMethod("GET");
+        r1.setUrl(url);
+        r1.setReferenceId("ref1");
+        CompositeRequest r2 = new CompositeRequest();
+        r2.setMethod("GET");
+        r2.setUrl(url);
+        r2.setReferenceId("ref2");
+
+        CompositeRequestBody body = new CompositeRequestBody();
+        body.setCompositeRequest(List.of(r1, r2));
+
+        var resp = api.composite().compositeRequest(body);
+        assertEquals(2, resp.getCompositeResponse().size(), "must return one response per subrequest");
+        for (CompositeResponse cr : resp.getCompositeResponse()) {
+            assertTrue(cr.isSuccessful(), "subrequest " + cr.getReferenceId()
+                    + " failed: " + cr.getHttpStatusCode() + " " + cr.getCompositeResponseErrors());
+        }
+        System.out.println("✅ compositeRequest 2 GET subrequests OK for " + id);
+    }
+
+    // ── Bulk API 2.0 补全缺口 ──
+
+    private static BulkApiQueryJobResponse createAndAwaitBulkJob(String objectName, String query, BulkApi.JobOperation operation) {
+        BulkApiQueryJobRequest request = new BulkApiQueryJobRequest()
+                .setObject(objectName)
+                .setQuery(query)
+                .setOperation(operation);
+        BulkApiQueryJobResponse job = api.bulk().createBulkQueryJob(request, null);
+        System.out.println("✅ Created bulk query job: " + job.getId() + " op=" + operation);
+        BulkApiQueryJobResponse completed = api.bulk().waitForJobComplete(job.getId(), 1000L, 120000L, null);
+        System.out.println("📊 JobComplete numberRecordsProcessed=" + completed.getNumberRecordsProcessed());
+        return completed;
+    }
+
+    @Test
+    void bulkSerialDownloadToFile() throws Exception {
+        String objectName = pickQueryableObject();
+        BulkApiQueryJobResponse completed = createAndAwaitBulkJob(
+                objectName, "SELECT Id FROM " + objectName + " LIMIT 5000", BulkApi.JobOperation.QUERY);
+        try {
+            File dst = File.createTempFile("bulk-serial", ".csv");
+            dst.deleteOnExit();
+            // maxRecords=1000 强制 locator 多页分页（Contact 3376 行 → 至少 4 页）
+            api.bulk().downloadBulkQueryJobResult(completed.getId(), dst, 1000, null);
+
+            List<String> lines = Files.readAllLines(dst.toPath());
+            long dataRows = lines.size() - 1L;
+            assertTrue(dataRows > 2000, "expected multi-page aggregated download (rows=" + dataRows + ")");
+            assertEquals(completed.getNumberRecordsProcessed(), (int) dataRows,
+                    "downloaded rows must match job numberRecordsProcessed");
+            System.out.println("✅ Serial multi-page download rows=" + dataRows);
+        } finally {
+            api.bulk().deleteBulkQueryJob(completed.getId(), null);
+        }
+    }
+
+    @Test
+    void bulkForEachResultRowLive() {
+        String objectName = pickQueryableObject();
+        BulkApiQueryJobResponse completed = createAndAwaitBulkJob(
+                objectName, "SELECT Id FROM " + objectName + " LIMIT 5000", BulkApi.JobOperation.QUERY);
+        try {
+            AtomicInteger count = new AtomicInteger();
+            api.bulk().forEachResultRow(completed.getId(), 1000, row -> count.incrementAndGet(), null);
+            assertEquals(completed.getNumberRecordsProcessed(), count.get(),
+                    "row callback must be invoked once per record");
+            System.out.println("✅ forEachResultRow rows=" + count.get());
+        } finally {
+            api.bulk().deleteBulkQueryJob(completed.getId(), null);
+        }
+    }
+
+    @Test
+    void bulkForEachResultPageParallelLive() {
+        String objectName = pickQueryableObject();
+        BulkApiQueryJobResponse completed = createAndAwaitBulkJob(
+                objectName, "SELECT Id FROM " + objectName + " LIMIT 5000", BulkApi.JobOperation.QUERY);
+        try {
+            AtomicInteger rows = new AtomicInteger();
+            AtomicInteger pages = new AtomicInteger();
+            api.bulk().forEachResultPageParallel(completed.getId(), 3, page -> {
+                pages.incrementAndGet();
+                rows.addAndGet(page.size());
+            }, null);
+            assertEquals(completed.getNumberRecordsProcessed(), rows.get(),
+                    "parallel page consumption must cover all records");
+            System.out.println("✅ forEachResultPageParallel pages=" + pages.get() + " rows=" + rows.get());
+        } finally {
+            api.bulk().deleteBulkQueryJob(completed.getId(), null);
+        }
+    }
+
+    @Test
+    void bulkRunQueryJobsLive() throws Exception {
+        String objectName = pickQueryableObject();
+        File dstDir = Files.createTempDirectory("bulk-run-jobs").toFile();
+        // 注意：runQueryJobs 返回 Map 以查询字符串为 key — 两条查询必须不同（相同字符串会覆盖只剩一条）。
+        // 这是有意记录的 SDK 行为：相同 SOQL 无法通过 key 区分。
+        List<String> queries = List.of(
+                "SELECT Id FROM " + objectName + " LIMIT 100",
+                "SELECT Id FROM " + objectName + " LIMIT 99");
+
+        Map<String, File> results = api.bulk().runQueryJobs(queries, objectName, dstDir, 2, 1000, null);
+
+        assertEquals(2, results.size(), "one result file per query");
+        results.forEach((query, file) -> {
+            assertTrue(file.exists() && file.length() > 0, "result file must be non-empty for: " + query);
+            System.out.println("✅ runQueryJobs file=" + file.getName() + " bytes=" + file.length());
+        });
+        // runQueryJobs 不删 job — 清理本次产生的 job 文件不需要 id（job 由 org 端 7 天后过期），
+        // 但我们不持有 id → 保持行为原样，仅验证下载结果
+    }
+
+    @Test
+    void bulkQueryAllOperationLive() {
+        String objectName = pickQueryableObject();
+        BulkApiQueryJobResponse completed = createAndAwaitBulkJob(
+                objectName, "SELECT Id FROM " + objectName, BulkApi.JobOperation.QUERY_ALL);
+        try {
+            assertTrue(completed.getNumberRecordsProcessed() >= 0,
+                    "QUERY_ALL job must complete with a non-negative record count (deleted rows may be 0)");
+            System.out.println("✅ QUERY_ALL numberRecordsProcessed=" + completed.getNumberRecordsProcessed());
+        } finally {
+            api.bulk().deleteBulkQueryJob(completed.getId(), null);
+        }
+    }
+
+    // ── CustomCodeApi ──
+
+    @Test
+    void listStandardInvocableActionsLive() {
+        ListInvocableActionResult result;
+        try {
+            result = api.customCode().listStandardInvocableActions();
+        } catch (ApiException e) {
+            // invocable actions 元数据接口可能未授权/未启用 — 非 SDK 缺陷 → 跳过
+            if (e.getCode() == 401 || e.getCode() == 403 || e.getCode() == 404) {
+                Assumptions.abort("skipping invocable actions — not permitted/enabled in org: " + e.getMessage());
+            }
+            throw e;
+        }
+        assertNotNull(result, "response must deserialize");
+        int count = result.getActions() == null ? 0 : result.getActions().size();
+        System.out.println("✅ listStandardInvocableActions count=" + count);
+    }
+
+    // ── Error handling ──
+
+    @Test
+    void invalidSoqlThrowsApiException() {
+        ApiException e = assertThrows(ApiException.class, () -> api.query().soqlQuery(
+                "SELECT BadField__c FROM NoSuchObject", Map.class));
+        System.out.println("✅ Invalid SOQL → ApiException code=" + e.getCode() + " " + e.getMessage());
     }
 }
