@@ -114,4 +114,18 @@ class FileApiTest {
         assertNotNull(exception.getCause());
         assertEquals("connection reset", exception.getCause().getMessage());
     }
+
+    @Test
+    void downloadContentDocumentFailureKeepsIOExceptionCause() {
+        SforceApi api = apiWith(chain -> {
+            throw new java.io.IOException("connection reset");
+        });
+        DownloadContentDocumentRequest request = new DownloadContentDocumentRequest(
+                "069xx0000000006", ".", "doc", ".pdf");
+
+        DownloadFileException exception = assertThrows(DownloadFileException.class,
+                () -> api.file().downloadContentDocument(request));
+        assertNotNull(exception.getCause());
+        assertEquals("connection reset", exception.getCause().getMessage());
+    }
 }

@@ -364,6 +364,81 @@ class SforceApiTest {
     }
 
     @Test
+    void soslQueryIOExceptionIsWrappedButNotAsApiException() {
+        SforceApi api = apiWith(chain -> {
+            throw new java.io.IOException("socket closed");
+        });
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> api.query().soslQuery("FIND {Test}"));
+
+        assertFalse(exception instanceof ApiException, "IOException 不应伪装成 ApiException");
+        assertInstanceOf(java.io.IOException.class, exception.getCause());
+        assertEquals("socket closed", exception.getCause().getMessage());
+    }
+
+    @Test
+    void soslQueryWithParameterParsesResponse() {
+        AtomicReference<Request> captured = new AtomicReference<>();
+        SforceApi api = apiWith(chain -> {
+            captured.set(chain.request());
+            return buildResponse(chain.request(), 200,
+                    "{\"searchRecords\":[{\"Id\":\"001xx000003DGbA\"}]}");
+        });
+
+        SOSLQueryResponse response = api.query().soslQueryWithParameter("q=Acme");
+
+        assertEquals(1, response.getSearchRecords().size());
+        assertTrue(captured.get().url().encodedPath().endsWith("/parameterizedSearch"));
+        assertEquals("q=Acme", captured.get().url().query());
+    }
+
+    @Test
+    void soslQueryWithParameterIOExceptionIsWrapped() {
+        SforceApi api = apiWith(chain -> {
+            throw new java.io.IOException("connect timeout");
+        });
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> api.query().soslQueryWithParameter("q=Acme"));
+
+        assertFalse(exception instanceof ApiException);
+        assertEquals("connect timeout", exception.getCause().getMessage());
+    }
+
+    @Test
+    void soslQueryWithRequestBodyPostsToParameterizedSearch() {
+        AtomicReference<Request> captured = new AtomicReference<>();
+        SforceApi api = apiWith(chain -> {
+            captured.set(chain.request());
+            return buildResponse(chain.request(), 200, "{\"searchRecords\":[]}");
+        });
+        ParameterizedSearchRequestBody requestBody = new ParameterizedSearchRequestBody(
+                "Acme", null, null, null, null, null, null, null, null, null, null, null, null, false, null, null);
+
+        SOSLQueryResponse response = api.query().soslQueryWithParameter(requestBody);
+
+        assertNotNull(response.getSearchRecords());
+        assertEquals("POST", captured.get().method());
+        assertTrue(captured.get().url().encodedPath().endsWith("/parameterizedSearch"));
+    }
+
+    @Test
+    void soslQueryWithRequestBodyIOExceptionIsWrapped() {
+        SforceApi api = apiWith(chain -> {
+            throw new java.io.IOException("connection reset");
+        });
+        ParameterizedSearchRequestBody requestBody = new ParameterizedSearchRequestBody(
+                "Acme", null, null, null, null, null, null, null, null, null, null, null, null, false, null, null);
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> api.query().soslQueryWithParameter(requestBody));
+
+        assertFalse(exception instanceof ApiException);
+        assertEquals("connection reset", exception.getCause().getMessage());
+    }
+
+    @Test
     void describeUsesCustomObjectType() {
         AtomicReference<String> capturedPath = new AtomicReference<>();
         OkHttpClient client = new OkHttpClient.Builder()
