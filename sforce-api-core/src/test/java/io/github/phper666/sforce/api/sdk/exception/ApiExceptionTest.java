@@ -3,10 +3,12 @@ package io.github.phper666.sforce.api.sdk.exception;
 import io.github.phper666.sforce.api.sdk.model.ApiErrorDetail;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApiExceptionTest {
@@ -57,6 +59,16 @@ class ApiExceptionTest {
         AuthException e = new AuthException(401, "Invalid credentials");
         assertEquals(401, e.getCode());
         assertEquals("Invalid credentials", e.getMessage());
+    }
+
+    @Test
+    void authExceptionKeepsCause() {
+        IOException io = new IOException("connection reset");
+        AuthException e = new AuthException(0, "auth login flow failed: connection reset", io);
+
+        assertEquals(0, e.getCode());
+        assertSame(io, e.getCause());
+        assertEquals("auth login flow failed: connection reset", e.getMessage());
     }
 
     @Test

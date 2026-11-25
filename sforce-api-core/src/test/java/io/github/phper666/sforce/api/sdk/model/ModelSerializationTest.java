@@ -57,6 +57,26 @@ class ModelSerializationTest {
     }
 
     @Test
+    void compositeResponseWithoutStatusCodeIsNotSuccessful() {
+        CompositeResponse response = (CompositeResponse) serializer.fromJson(
+                "{\"referenceId\":\"ref1\",\"body\":{}}", CompositeResponse.class);
+
+        assertNull(response.getHttpStatusCode());
+        assertFalse(response.isSuccessful(), "缺 httpStatusCode 时不能 NPE");
+    }
+
+    @Test
+    void compositeResponseStatusCodeDrivesSuccess() {
+        CompositeResponse ok = (CompositeResponse) serializer.fromJson(
+                "{\"httpStatusCode\":201}", CompositeResponse.class);
+        CompositeResponse failed = (CompositeResponse) serializer.fromJson(
+                "{\"httpStatusCode\":400}", CompositeResponse.class);
+
+        assertTrue(ok.isSuccessful());
+        assertFalse(failed.isSuccessful());
+    }
+
+    @Test
     void createOrUpdateObjectResponse() {
         String json = "{\"id\":\"001xx000003DGbA\",\"success\":true,\"created\":true}";
         CreateOrUpdateObjectResponse response = (CreateOrUpdateObjectResponse) serializer.fromJson(json, CreateOrUpdateObjectResponse.class);

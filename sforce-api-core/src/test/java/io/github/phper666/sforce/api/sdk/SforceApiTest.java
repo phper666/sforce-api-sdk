@@ -4,6 +4,7 @@ import io.github.phper666.sforce.api.sdk.config.AuthFlow;
 import io.github.phper666.sforce.api.sdk.config.SdkConfig;
 import io.github.phper666.sforce.api.sdk.config.SdkTypes.HttpMethod;
 import io.github.phper666.sforce.api.sdk.exception.ApiException;
+import io.github.phper666.sforce.api.sdk.exception.AuthException;
 import io.github.phper666.sforce.api.sdk.internal.BaseApi;
 import io.github.phper666.sforce.api.sdk.model.*;
 import okhttp3.*;
@@ -200,6 +201,65 @@ class SforceApiTest {
         assertNull(exception.getErrorCode());
         assertTrue(exception.getErrorDetails().isEmpty());
         assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
+    void ambiguousExternalIdExposesMatchedRecordIds() {
+        String body = "[{\"Id\":\"001xx000003DGbA\",\"Name\":\"Acme\"},"
+                + "{\"Id\":\"001xx000003DGbB\",\"Name\":\"Acme Duplicate\"}]";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 300, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertEquals(300, exception.getCode());
+        assertTrue(exception.isAmbiguous());
+        assertEquals(List.of("001xx000003DGbA", "001xx000003DGbB"), exception.getRecordIds());
+        assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
+    void ambiguousRecordIdsAreEmptyWhenBodyIsNotARecordList() {
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 300, "<html>moved</html>"));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertTrue(exception.isAmbiguous());
+        assertTrue(exception.getRecordIds().isEmpty());
+    }
+
+    @Test
+    void nonAmbiguousErrorHasNoRecordIds() {
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 404,
+                "[{\"message\":\"not found\",\"errorCode\":\"NOT_FOUND\"}]"));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertFalse(exception.isAmbiguous());
+        assertTrue(exception.getRecordIds().isEmpty());
+    }
+
+    @Test
+    void authNetworkFailureBecomesAuthExceptionWithCause() {
+        OkHttpClient client = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    throw new java.io.IOException("connection reset");
+                })
+                .build();
+        SdkConfig config = new SdkConfig()
+                .setAuthFlow(AuthFlow.CLIENT_CREDENTIAL)
+                .setClientId("id")
+                .setClientSecret("secret")
+                .setLoginEndpoint("https://login.salesforce.com")
+                .setOkHttpClient(client);
+
+        AuthException exception = assertThrows(AuthException.class, () -> new SforceApi(config));
+
+        assertEquals(0, exception.getCode());
+        assertInstanceOf(java.io.IOException.class, exception.getCause());
+        assertEquals("connection reset", exception.getCause().getMessage());
     }
 
     @Test
