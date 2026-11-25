@@ -24,6 +24,7 @@ public class BulkApiQueryJobResponse {
     private BulkApi.JobOperation operation;
     private String query;
     private BulkApi.JobState state;
+    private String errorMessage;
     private String systemModstamp;
     private Integer numberRecordsProcessed;
     private Integer retries;

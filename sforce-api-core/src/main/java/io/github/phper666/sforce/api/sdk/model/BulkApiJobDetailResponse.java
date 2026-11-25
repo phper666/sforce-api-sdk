@@ -27,5 +27,6 @@ public class BulkApiJobDetailResponse {
     private String object;
     private BulkApi.JobOperation operation;
     private BulkApi.JobState state;
+    private String errorMessage;
     private String systemModstamp;
 }
