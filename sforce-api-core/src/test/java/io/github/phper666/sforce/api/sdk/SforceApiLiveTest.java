@@ -10,6 +10,7 @@ import io.github.phper666.sforce.api.sdk.model.CompositeRequest;
 import io.github.phper666.sforce.api.sdk.model.CompositeResponse;
 import io.github.phper666.sforce.api.sdk.model.ListInvocableActionResult;
 import io.github.phper666.sforce.api.sdk.model.ObjectDescribeResponse;
+import io.github.phper666.sforce.api.sdk.model.ObjectFieldDescribe;
 import io.github.phper666.sforce.api.sdk.model.PageQueryResponse;
 import io.github.phper666.sforce.api.sdk.model.QueryJobResult;
 import io.github.phper666.sforce.api.sdk.model.SObjectMetadata;
@@ -22,6 +23,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -651,5 +654,62 @@ public class SforceApiLiveTest {
         System.out.println("✅ ACCESS_TOKEN flow + custom client: object=" + objectName
                 + " totalSize=" + result.getTotalSize()
                 + " customClientCalls=" + customClientCalls.get());
+    }
+
+    /**
+     * HTTP 300 only happens when a non-unique external ID matches several
+     * records, so the org needs such a field on a writable object plus spare
+     * storage. Aborts instead of failing when the org can't host the setup.
+     */
+    @Test
+    void ambiguousExternalIdLive() {
+        ObjectDescribeResponse describe = api.sobject().getSObjectDescribe("Contact");
+        ObjectFieldDescribe externalIdField = describe.getFields().stream()
+                .filter(ObjectFieldDescribe::isExternalId)
+                .filter(field -> !field.isUnique())
+                .filter(ObjectFieldDescribe::isCreateable)
+                .filter(field -> "string".equalsIgnoreCase(field.getType()))
+                .findFirst()
+                .orElse(null);
+        if (externalIdField == null) {
+            Assumptions.abort("Contact has no non-unique string external id field");
+            return;
+        }
+        System.out.println("📋 external id field: " + externalIdField.getName());
+
+        String token = "sdk-ambig-" + System.currentTimeMillis();
+        List<String> createdIds = new ArrayList<>();
+        try {
+            for (int i = 1; i <= 2; i++) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("LastName", "SDK Ambiguous " + i);
+                data.put(externalIdField.getName(), token);
+                try {
+                    createdIds.add(api.sobject().create("Contact", data).getId());
+                } catch (ApiException e) {
+                    // 环境限制（如 org 存储满、无写权限）非 SDK 缺陷 → 跳过，避免 live 套件噪音
+                    Assumptions.abort("skipping 300 check — org rejected write: " + e.getErrorCode());
+                    return;
+                }
+            }
+
+            ApiException exception = assertThrows(ApiException.class,
+                    () -> api.sobject().getSObjectByExternalId(
+                            "Contact", externalIdField.getName(), token, Map.class));
+
+            assertEquals(300, exception.getCode(), "ambiguous external id must answer HTTP 300");
+            assertTrue(exception.isAmbiguous(), "isAmbiguous() must be true for 300");
+            assertTrue(exception.getRecordIds().containsAll(createdIds),
+                    "matched ids " + exception.getRecordIds() + " must include " + createdIds);
+            System.out.println("✅ HTTP 300 ambiguous: " + exception.getRecordIds());
+        } finally {
+            for (String id : createdIds) {
+                try {
+                    api.sobject().deleteSObject("Contact", id);
+                } catch (RuntimeException ignored) {
+                    // best effort cleanup
+                }
+            }
+        }
     }
 }
