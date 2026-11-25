@@ -5,12 +5,14 @@ import io.github.phper666.sforce.api.sdk.config.SdkTypes.TimeoutSettings;
 import io.github.phper666.sforce.api.sdk.config.Session;
 import io.github.phper666.sforce.api.sdk.auth.BaseAuthenticator;
 import io.github.phper666.sforce.api.sdk.exception.ApiException;
+import io.github.phper666.sforce.api.sdk.model.ApiErrorDetail;
 import io.github.phper666.sforce.api.sdk.serialize.JsonSerializer;
 import okhttp3.*;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 public abstract class BaseApi {
@@ -189,9 +191,47 @@ public abstract class BaseApi {
         }
         if (!response.isSuccessful()) {
             String body = response.body() != null ? response.body().string() : "";
-            throw new ApiException(response.code(), body, response.request().method(), response.request().url().toString());
+            throw new ApiException(response.code(), body, response.request().method(),
+                    response.request().url().toString(), parseErrorDetails(body));
         }
         return response;
+    }
+
+    /**
+     * Parse a Salesforce error body into structured details.
+     * <p>
+     * Documented shapes are a JSON array {@code [{"errorCode","message","fields"}]}
+     * and a single JSON object {@code {"errorCode","message"}}. Anything else,
+     * such as an HTML gateway page or an empty body, is left unparsed so the
+     * raw body stays the only source of truth.
+     *
+     * @param body raw response body
+     * @return parsed entries, empty when the body isn't a documented error shape
+     */
+    @SuppressWarnings("unchecked")
+    private List<ApiErrorDetail> parseErrorDetails(String body) {
+        if (body == null) {
+            return List.of();
+        }
+        String trimmed = body.trim();
+        List<ApiErrorDetail> details;
+        try {
+            if (trimmed.startsWith("[")) {
+                details = jsonSerializer.fromJsonList(trimmed, ApiErrorDetail.class);
+            } else if (trimmed.startsWith("{")) {
+                details = List.of((ApiErrorDetail) jsonSerializer.fromJson(trimmed, ApiErrorDetail.class));
+            } else {
+                return List.of();
+            }
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+        if (details == null) {
+            return List.of();
+        }
+        return details.stream()
+                .filter(detail -> detail != null && (detail.errorCode() != null || detail.message() != null))
+                .toList();
     }
 
     protected Request buildRequest(String url, String method, RequestBody requestBody, Map<String, String> headers, TimeoutSettings timeOutConfig) {
