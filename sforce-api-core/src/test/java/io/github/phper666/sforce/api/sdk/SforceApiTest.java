@@ -95,6 +95,114 @@ class SforceApiTest {
     }
 
     @Test
+    void apiExceptionParsesDocumentedErrorArray() {
+        String body = "[{\"fields\":[\"Id\"],\"message\":\"Account ID: id value of incorrect type\","
+                + "\"errorCode\":\"MALFORMED_ID\"}]";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 400, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "bad-id"));
+
+        assertEquals("MALFORMED_ID", exception.getErrorCode());
+        assertEquals(1, exception.getErrorDetails().size());
+        assertEquals("MALFORMED_ID", exception.getErrorDetails().get(0).errorCode());
+        assertEquals("Account ID: id value of incorrect type", exception.getErrorDetails().get(0).message());
+        assertEquals(List.of("Id"), exception.getErrorDetails().get(0).fields());
+    }
+
+    @Test
+    void apiExceptionParsesDocumentedSingleErrorObject() {
+        String body = "{\"message\":\"The requested resource does not exist\",\"errorCode\":\"NOT_FOUND\"}";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 404, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertEquals("NOT_FOUND", exception.getErrorCode());
+        assertEquals(1, exception.getErrorDetails().size());
+        assertEquals("The requested resource does not exist", exception.getErrorDetails().get(0).message());
+    }
+
+    @Test
+    void apiExceptionParsesMultipleErrorEntries() {
+        String body = "[{\"message\":\"Required fields are missing\",\"errorCode\":\"REQUIRED_FIELD_MISSING\"},"
+                + "{\"message\":\"bad value\",\"errorCode\":\"INVALID_FIELD\"}]";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 400, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertEquals("REQUIRED_FIELD_MISSING", exception.getErrorCode());
+        assertEquals(2, exception.getErrorDetails().size());
+    }
+
+    @Test
+    void apiExceptionKeepsRawBodyAndMessageUnchanged() {
+        String body = "[{\"message\":\"unexpected token\",\"errorCode\":\"MALFORMED_QUERY\"}]";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 400, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        // 向后兼容：getMessage() 仍是原始响应体
+        assertEquals(body, exception.getMessage());
+        assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
+    void apiExceptionKeepsRawBodyWhenResponseIsNotJson() {
+        String body = "<html><head><title>502 Bad Gateway</title></head></html>";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 502, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertNull(exception.getErrorCode());
+        assertTrue(exception.getErrorDetails().isEmpty());
+        assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
+    void apiExceptionHandlesEmptyBody() {
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 500, ""));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertNull(exception.getErrorCode());
+        assertTrue(exception.getErrorDetails().isEmpty());
+        assertEquals("", exception.getRawBody());
+    }
+
+    @Test
+    void apiExceptionHandlesMalformedJsonBody() {
+        String body = "{\"errorCode\": \"BROKEN\"";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 500, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertNull(exception.getErrorCode());
+        assertTrue(exception.getErrorDetails().isEmpty());
+        assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
+    void apiExceptionDoesNotTreatRecordListAsErrors() {
+        // 300：external id 命中多条记录，body 是记录列表而非错误详情
+        String body = "[{\"Id\":\"001xx000003DGbA\",\"Name\":\"Acme\"}]";
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 300, body));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.sobject().getSObjectAsMap("Account", "001xx000003DGbA"));
+
+        assertEquals(300, exception.getCode());
+        assertNull(exception.getErrorCode());
+        assertTrue(exception.getErrorDetails().isEmpty());
+        assertEquals(body, exception.getRawBody());
+    }
+
+    @Test
     void createParsesResponse() {
         SforceApi api = apiWith(chain -> buildResponse(chain.request(), 200,
                 "{\"id\":\"001xx000003DGbA\",\"success\":true}"));
