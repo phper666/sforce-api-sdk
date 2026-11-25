@@ -245,6 +245,17 @@ class SforceApiTest {
     }
 
     @Test
+    void soslQueryFailurePropagatesApiException() {
+        SforceApi api = apiWith(chain -> buildResponse(chain.request(), 400,
+                "[{\"message\":\"unexpected token: bad\",\"errorCode\":\"MALFORMED_QUERY\"}]"));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> api.query().soslQuery("FIND {bad}"));
+        assertEquals(400, exception.getCode());
+        assertTrue(exception.getMessage().contains("MALFORMED_QUERY"));
+    }
+
+    @Test
     void describeUsesCustomObjectType() {
         AtomicReference<String> capturedPath = new AtomicReference<>();
         OkHttpClient client = new OkHttpClient.Builder()

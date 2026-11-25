@@ -72,7 +72,7 @@ class FileApi extends BaseApi {
             return createTempFile(request, response);
         } catch (IOException e) {
             log.error("download file exception, fileId:{}", request.fileId(), e);
-            throw new DownloadFileException(e.getMessage());
+            throw new DownloadFileException(e.getMessage(), e);
         }
     }
 
@@ -94,7 +94,7 @@ class FileApi extends BaseApi {
             throw new DownloadFileException("download file error, fileId: " + fileId);
         } catch (IOException e) {
             log.error("downloadContentDocumentFile exception, fileId:{}", fileId, e);
-            throw new DownloadFileException(e.getMessage());
+            throw new DownloadFileException(e.getMessage(), e);
         }
     }
 

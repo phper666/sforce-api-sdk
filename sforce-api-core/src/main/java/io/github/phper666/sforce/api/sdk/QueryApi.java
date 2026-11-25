@@ -85,7 +85,7 @@ class QueryApi extends BaseApi {
         try {
             String body = executeGetBody(soslUri(query), HttpMethod.GET.name(), EMPTY_BODY, EMPTY_HEADERS, DEFAULT_TIME_OUT);
             return (SOSLQueryResponse) jsonSerializer.fromJson(body, SOSLQueryResponse.class);
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -95,7 +95,7 @@ class QueryApi extends BaseApi {
         try {
             String body = executeGetBody(soslParameterizedSearchUri(query), HttpMethod.GET.name(), EMPTY_BODY, EMPTY_HEADERS, DEFAULT_TIME_OUT);
             return (SOSLQueryResponse) jsonSerializer.fromJson(body, SOSLQueryResponse.class);
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -106,7 +106,7 @@ class QueryApi extends BaseApi {
             RequestBody rb = RequestBody.create(JSON_MEDIA, jsonSerializer.toJson(searchRequestBody));
             String body = executeGetBody(soslParameterizedSearchUri(), HttpMethod.POST.name(), rb, EMPTY_HEADERS, DEFAULT_TIME_OUT);
             return (SOSLQueryResponse) jsonSerializer.fromJson(body, SOSLQueryResponse.class);
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
