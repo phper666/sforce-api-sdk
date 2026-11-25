@@ -14,6 +14,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public abstract class BaseApi {
     protected OkHttpClient okHttpClient;
@@ -191,10 +192,43 @@ public abstract class BaseApi {
         }
         if (!response.isSuccessful()) {
             String body = response.body() != null ? response.body().string() : "";
-            throw new ApiException(response.code(), body, response.request().method(),
-                    response.request().url().toString(), parseErrorDetails(body));
+            String requestMethod = response.request().method();
+            String requestUrl = response.request().url().toString();
+            if (response.code() == 300) {
+                // Body is the list of records matched by an ambiguous external ID.
+                throw new ApiException(300, body, requestMethod, requestUrl, List.of(),
+                        parseAmbiguousRecordIds(body));
+            }
+            throw new ApiException(response.code(), body, requestMethod, requestUrl, parseErrorDetails(body));
         }
         return response;
+    }
+
+    /**
+     * Extract the matched record ids from an HTTP 300 body.
+     * <p>
+     * Salesforce returns the list of matching records for that status, not an
+     * error payload.
+     *
+     * @param body raw response body
+     * @return matched record ids, empty when the body isn't a record list
+     */
+    private List<String> parseAmbiguousRecordIds(String body) {
+        if (body == null || !body.trim().startsWith("[")) {
+            return List.of();
+        }
+        try {
+            List<AmbiguousRecordRef> refs = jsonSerializer.fromJsonList(body.trim(), AmbiguousRecordRef.class);
+            if (refs == null) {
+                return List.of();
+            }
+            return refs.stream()
+                    .map(AmbiguousRecordRef::id)
+                    .filter(Objects::nonNull)
+                    .toList();
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     /**

@@ -10,7 +10,8 @@ import java.util.List;
  * <p>
  * {@link #getMessage()} keeps returning the raw response body for backward
  * compatibility. Use {@link #getErrorCode()} / {@link #getErrorDetails()} to
- * read the structured error when Salesforce returned a documented error body.
+ * read the structured error when Salesforce returned a documented error body,
+ * and {@link #isAmbiguous()} / {@link #getRecordIds()} for HTTP 300.
  *
  * @author Yuzhao.Li
  */
@@ -21,20 +22,27 @@ public class ApiException extends RuntimeException {
     private final int code;
     private final String message;
     private final List<ApiErrorDetail> errorDetails;
+    private final List<String> recordIds;
     private String method;
     private String url;
 
     public ApiException(int code, String message, String method, String url) {
-        this(code, message, method, url, List.of());
+        this(code, message, method, url, List.of(), List.of());
     }
 
     public ApiException(int code, String message, String method, String url, List<ApiErrorDetail> errorDetails) {
+        this(code, message, method, url, errorDetails, List.of());
+    }
+
+    public ApiException(int code, String message, String method, String url,
+            List<ApiErrorDetail> errorDetails, List<String> recordIds) {
         super(message);
         this.code = code;
         this.message = message;
         this.method = method;
         this.url = url;
         this.errorDetails = errorDetails == null ? List.of() : List.copyOf(errorDetails);
+        this.recordIds = recordIds == null ? List.of() : List.copyOf(recordIds);
     }
 
     public int getCode() {
@@ -71,6 +79,27 @@ public class ApiException extends RuntimeException {
      */
     public String getErrorCode() {
         return errorDetails.isEmpty() ? null : errorDetails.get(0).errorCode();
+    }
+
+    /**
+     * Whether Salesforce answered HTTP 300, meaning an external ID matched more
+     * than one record. For that status the body is the list of matching records
+     * rather than an error payload.
+     *
+     * @return true when the response was HTTP 300
+     */
+    public boolean isAmbiguous() {
+        return code == 300;
+    }
+
+    /**
+     * Ids of the records that matched an ambiguous external ID.
+     *
+     * @return matched record ids, empty for every other status or when the body
+     *         couldn't be parsed
+     */
+    public List<String> getRecordIds() {
+        return recordIds;
     }
 
     @Override

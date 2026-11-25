@@ -57,7 +57,7 @@ public abstract class BaseAuthenticator {
                 throw new AuthException(response.code(), "auth login flow failed: " + errorBody);
             }
         } catch (IOException e) {
-            throw new RuntimeException("auth login flow failed: " + e.getMessage(), e);
+            throw new AuthException(0, "auth login flow failed: " + e.getMessage(), e);
         }
     }
 }

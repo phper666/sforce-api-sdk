@@ -23,6 +23,6 @@ public class CompositeResponse {
     private Boolean duplicateValueError = false;
 
     public boolean isSuccessful() {
-        return httpStatusCode >= 200 && httpStatusCode < 300;
+        return httpStatusCode != null && httpStatusCode >= 200 && httpStatusCode < 300;
     }
 }
