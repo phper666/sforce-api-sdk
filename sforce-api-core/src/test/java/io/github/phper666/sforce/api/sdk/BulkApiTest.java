@@ -282,6 +282,24 @@ class BulkApiTest {
     }
 
     @Test
+    void failedJobSurfacesErrorMessage() {
+        String reason = "InvalidBatch: Field name not found: Bad_Field__c";
+        SforceApi api = apiWith(chain ->
+                buildResponse(chain.request(), 200,
+                        "{\"id\":\"751xx000000008\",\"state\":\"Failed\",\"errorMessage\":\"" + reason + "\"}"));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> api.bulk().waitForJobComplete("751xx000000008", 10L, 5000L, null));
+        assertTrue(ex.getMessage().contains(reason), ex.getMessage());
+
+        // ingest job info 同名字段，反序列化不得丢弃
+        BulkApiJobDetailResponse job = (BulkApiJobDetailResponse) GsonJsonSerializer.INSTANCE()
+                .fromJson("{\"state\":\"Failed\",\"errorMessage\":\"" + reason + "\"}",
+                        BulkApiJobDetailResponse.class);
+        assertEquals(reason, job.getErrorMessage());
+    }
+
+    @Test
     void queryAllOperationSerialization() {
         BulkApiQueryJobRequest request = new BulkApiQueryJobRequest()
                 .setObject("Account")

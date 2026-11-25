@@ -479,7 +479,9 @@ public class BulkApi extends BaseApi {
                 return status;
             }
             if (status.getState() == BulkApi.JobState.FAILED) {
-                throw new IllegalStateException("Bulk query job failed: " + jobId + " state=" + status.getState());
+                throw new IllegalStateException("Bulk query job failed: " + jobId
+                        + " state=" + status.getState()
+                        + " errorMessage=" + status.getErrorMessage());
             }
             try {
                 Thread.sleep(interval);
