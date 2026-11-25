@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
-class FileApi extends BaseApi {
+public class FileApi extends BaseApi {
     FileApi(SdkConfig config, Session session, OkHttpClient okHttpClient, JsonSerializer jsonSerializer, BaseAuthenticator authFlow) {
         super(config, session, okHttpClient, jsonSerializer, authFlow);
     }

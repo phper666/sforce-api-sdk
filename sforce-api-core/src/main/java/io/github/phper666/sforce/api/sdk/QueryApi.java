@@ -18,7 +18,7 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 
-class QueryApi extends BaseApi {
+public class QueryApi extends BaseApi {
     QueryApi(SdkConfig config, Session session, OkHttpClient okHttpClient, JsonSerializer jsonSerializer, BaseAuthenticator authFlow) {
         super(config, session, okHttpClient, jsonSerializer, authFlow);
     }
