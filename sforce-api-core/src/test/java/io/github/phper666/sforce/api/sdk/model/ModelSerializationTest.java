@@ -36,6 +36,27 @@ class ModelSerializationTest {
     }
 
     @Test
+    void createObjectResponseErrorListIsTyped() {
+        String json = "{\"success\":false,\"errors\":[{\"message\":\"Required field missing\","
+                + "\"statusCode\":\"REQUIRED_FIELD_MISSING\",\"fields\":[\"Name\"]}]}";
+        CreateObjectResponse response = (CreateObjectResponse) serializer.fromJson(json, CreateObjectResponse.class);
+
+        List<ResponseErrorDto> details = response.errorList();
+        assertEquals(1, details.size());
+        assertEquals("REQUIRED_FIELD_MISSING", details.get(0).getStatusCode());
+        assertEquals("Required field missing", details.get(0).getMessage());
+        assertEquals(List.of("Name"), details.get(0).getFields());
+    }
+
+    @Test
+    void errorListIsEmptyWhenNoErrors() {
+        CreateObjectResponse response = (CreateObjectResponse) serializer.fromJson(
+                "{\"id\":\"001xx000003DGbA\",\"success\":true}", CreateObjectResponse.class);
+
+        assertTrue(response.errorList().isEmpty());
+    }
+
+    @Test
     void createOrUpdateObjectResponse() {
         String json = "{\"id\":\"001xx000003DGbA\",\"success\":true,\"created\":true}";
         CreateOrUpdateObjectResponse response = (CreateOrUpdateObjectResponse) serializer.fromJson(json, CreateOrUpdateObjectResponse.class);

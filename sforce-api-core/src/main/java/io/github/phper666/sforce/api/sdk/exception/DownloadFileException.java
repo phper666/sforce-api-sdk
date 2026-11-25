@@ -15,12 +15,20 @@ public class DownloadFileException extends RuntimeException {
     private final String message;
 
     public DownloadFileException(String message) {
+        super(message);
         this.code = 0;
         this.message = message;
     }
 
     public DownloadFileException(int code, String message) {
+        super(message);
         this.code = code;
+        this.message = message;
+    }
+
+    public DownloadFileException(String message, Throwable cause) {
+        super(message, cause);
+        this.code = 0;
         this.message = message;
     }
 
