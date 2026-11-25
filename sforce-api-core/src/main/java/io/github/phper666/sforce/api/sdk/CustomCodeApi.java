@@ -13,7 +13,7 @@ import okhttp3.RequestBody;
 
 import java.io.IOException;
 
-class CustomCodeApi extends BaseApi {
+public class CustomCodeApi extends BaseApi {
     CustomCodeApi(SdkConfig config, Session session, OkHttpClient okHttpClient, JsonSerializer jsonSerializer, BaseAuthenticator authFlow) {
         super(config, session, okHttpClient, jsonSerializer, authFlow);
     }

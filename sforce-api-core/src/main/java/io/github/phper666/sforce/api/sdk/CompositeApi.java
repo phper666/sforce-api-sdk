@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 @Slf4j
-class CompositeApi extends BaseApi {
+public class CompositeApi extends BaseApi {
     CompositeApi(SdkConfig config, Session session, OkHttpClient okHttpClient, JsonSerializer jsonSerializer, BaseAuthenticator authFlow) {
         super(config, session, okHttpClient, jsonSerializer, authFlow);
     }

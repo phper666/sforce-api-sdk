@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 @Slf4j
-class SobjectApi extends BaseApi {
+public class SobjectApi extends BaseApi {
     private static final String COMMA = ",";
     private static final TimeoutSettings DEFAULT_TIME_OUT = new TimeoutSettings();
 
